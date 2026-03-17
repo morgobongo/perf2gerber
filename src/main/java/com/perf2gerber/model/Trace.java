@@ -87,6 +87,10 @@ public class Trace {
         return width;
     }
 
+    public void removePoint(int x, int y) {
+        segments.removeIf(pt -> pt.x() == x && pt.y() == y);
+    }
+
     /**
      * Returns an unmodifiable view of the segments to protect the internal list
      * from being accidentally modified outside of this class.

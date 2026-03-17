@@ -131,6 +131,7 @@ public class App extends Application {
         itemOpen.setOnAction(e -> openProject());
         itemSave.setOnAction(e -> saveProject());
         itemSaveAs.setOnAction(e -> saveProjectAs());
+        itemExport.setOnAction(e -> exportToGerber());
 
         menuFile.getItems().addAll(itemNew, itemOpen, itemSave, itemSaveAs, sep, itemExport);
         menuBar.getMenus().add(menuFile);
@@ -336,6 +337,84 @@ public class App extends Application {
         alert.setTitle(title);
         alert.setContentText(content);
         alert.showAndWait();
+    }
+
+    // N'oubliez pas d'importer javafx.stage.DirectoryChooser tout en haut si votre IDE ne le fait pas !
+    // import javafx.stage.DirectoryChooser;
+    // import com.perf2gerber.exporter.GerberExporter;
+
+    private void exportToGerber() {
+        // 1. On demande où sauvegarder le fichier ZIP
+        javafx.stage.FileChooser fileChooser = new javafx.stage.FileChooser();
+        fileChooser.setTitle("Save Gerber ZIP for JLCPCB");
+        fileChooser.setInitialFileName("Perf2Gerber_Project.zip");
+        fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("ZIP Archive (*.zip)", "*.zip"));
+
+        java.io.File zipFile = fileChooser.showSaveDialog(null);
+
+        if (zipFile != null) {
+            try {
+                // 2. On crée un dossier temporaire invisible pour générer les fichiers bruts
+                java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("gerber_export");
+
+                // --- GÉNÉRATION DES FICHIERS ---
+
+                // 1. Contour (Edge Cuts) -> Extension .GML (Gerber Mechanical Layer)
+                java.io.File edgeFile = new java.io.File(tempDir.toFile(), "board.GML");
+                com.perf2gerber.exporter.GerberExporter.exportEdgeCuts(board, edgeFile);
+
+                // 2. Perçage (Drill) -> Extension .DRL
+                java.io.File drillFile = new java.io.File(tempDir.toFile(), "board.DRL");
+                com.perf2gerber.exporter.GerberExporter.exportDrillFile(board, drillFile);
+
+                // 3. Cuivre Top (Top Copper) -> Extension .GTL
+                java.io.File topFile = new java.io.File(tempDir.toFile(), "board.GTL");
+                com.perf2gerber.exporter.GerberExporter.exportCopperLayer(board, Trace.Layer.TOP, topFile);
+
+                // 4. Cuivre Bottom (Bottom Copper) -> Extension .GBL
+                java.io.File bottomFile = new java.io.File(tempDir.toFile(), "board.GBL");
+                com.perf2gerber.exporter.GerberExporter.exportCopperLayer(board, Trace.Layer.BOTTOM, bottomFile);
+
+                // 5. Vernis Vert Top (Top Solder Mask) -> Extension .GTS
+                java.io.File topMaskFile = new java.io.File(tempDir.toFile(), "board.GTS");
+                com.perf2gerber.exporter.GerberExporter.exportSolderMask(board, topMaskFile);
+
+                // 6. Vernis Vert Bottom (Bottom Solder Mask) -> Extension .GBS
+                java.io.File bottomMaskFile = new java.io.File(tempDir.toFile(), "board.GBS");
+                com.perf2gerber.exporter.GerberExporter.exportSolderMask(board, bottomMaskFile);
+
+                // 3. On crée l'archive ZIP et on met les fichiers dedans
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(zipFile);
+                     java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(fos)) {
+
+                    java.io.File[] filesToZip = tempDir.toFile().listFiles();
+                    if (filesToZip != null) {
+                        for (java.io.File f : filesToZip) {
+                            zos.putNextEntry(new java.util.zip.ZipEntry(f.getName()));
+                            java.nio.file.Files.copy(f.toPath(), zos);
+                            zos.closeEntry();
+                        }
+                    }
+                }
+
+                // 4. Nettoyage : On supprime le dossier temporaire
+                java.io.File[] tempFiles = tempDir.toFile().listFiles();
+                if (tempFiles != null) {
+                    for (java.io.File f : tempFiles) f.delete();
+                }
+                tempDir.toFile().delete();
+
+                // 5. Message de succès
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Export Successful");
+                alert.setHeaderText("Gerber ZIP generated!");
+                alert.setContentText("Your file is ready for JLCPCB:\n" + zipFile.getAbsolutePath());
+                alert.showAndWait();
+
+            } catch (Exception e) {
+                showError("Export Error", "Could not export ZIP: " + e.getMessage());
+            }
+        }
     }
 
     public static void main(String[] args) {
