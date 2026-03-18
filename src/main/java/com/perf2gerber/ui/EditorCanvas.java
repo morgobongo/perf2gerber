@@ -1,5 +1,7 @@
 package com.perf2gerber.ui;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.perf2gerber.model.Board;
 import com.perf2gerber.model.Pad;
 import com.perf2gerber.model.Trace;
@@ -11,10 +13,11 @@ import javafx.scene.shape.StrokeLineJoin;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Stack;
 
 public class EditorCanvas extends Canvas {
 
-    public enum Tool { DRAW, ERASE }
+    public enum Tool { PADS, WIRE, ERASE }
 
     private Board board;
     private double zoomLevel = 15.0;
@@ -24,7 +27,7 @@ public class EditorCanvas extends Canvas {
     private Trace.Layer activeLayer = Trace.Layer.BOTTOM;
     private double currentTraceWidth = 1.0;
 
-    private Tool currentTool = Tool.DRAW;
+    private Tool currentTool = Tool.PADS;
     private boolean isCommandPressed = false;
     private boolean isViewFlipped = false;
 
@@ -32,15 +35,71 @@ public class EditorCanvas extends Canvas {
     private Integer hoverGridY = null;
 
     private java.util.function.BiConsumer<Integer, Integer> onCursorMoved;
+    private java.util.function.Consumer<Board> onBoardReplaced;
+
+    // Undo / Redo stacks
+    private Stack<String> undoStack = new Stack<>();
+    private Stack<String> redoStack = new Stack<>();
+    private Gson gson = new GsonBuilder().create();
+    
+    private boolean isUndoingOrRedoing = false;
 
     public EditorCanvas(Board board) {
         this.board = board;
         updateSize();
         setupMouseListeners();
+        saveState(); // Initial state
+    }
+
+    public void saveState() {
+        if (board != null && !isUndoingOrRedoing) {
+            String newState = gson.toJson(board);
+            // Don't save duplicate states
+            if (undoStack.isEmpty() || !undoStack.peek().equals(newState)) {
+                undoStack.push(newState);
+                redoStack.clear(); // Clear redo stack on new action
+            }
+        }
+    }
+
+    public void undo() {
+        if (undoStack.size() > 1) { // Keep initial state
+            isUndoingOrRedoing = true;
+            String currentState = undoStack.pop();
+            redoStack.push(currentState); // Move current state to redo
+            
+            String previousState = undoStack.peek(); // Get previous state
+            this.board = gson.fromJson(previousState, Board.class);
+            if (onBoardReplaced != null) onBoardReplaced.accept(this.board);
+            updateSize();
+            draw();
+            isUndoingOrRedoing = false;
+        }
+    }
+
+    public void redo() {
+        if (!redoStack.isEmpty()) {
+            isUndoingOrRedoing = true;
+            String nextState = redoStack.pop();
+            undoStack.push(nextState);
+            this.board = gson.fromJson(nextState, Board.class);
+            if (onBoardReplaced != null) onBoardReplaced.accept(this.board);
+            updateSize();
+            draw();
+            isUndoingOrRedoing = false;
+        }
     }
 
     public void setOnCursorMoved(java.util.function.BiConsumer<Integer, Integer> listener) {
         this.onCursorMoved = listener;
+    }
+
+    public void setOnBoardReplaced(java.util.function.Consumer<Board> listener) {
+        this.onBoardReplaced = listener;
+    }
+
+    public Board getBoard() {
+        return this.board;
     }
 
     public void updateSize() {
@@ -53,17 +112,18 @@ public class EditorCanvas extends Canvas {
 
     public void setTool(Tool tool) {
         this.currentTool = tool;
-        this.currentTrace = null;
+        endCurrentTrace();
         draw();
     }
 
     public void setCommandPressed(boolean pressed) {
         this.isCommandPressed = pressed;
+        draw();
     }
 
     public void setActiveLayer(Trace.Layer layer) {
         this.activeLayer = layer;
-        this.currentTrace = null;
+        endCurrentTrace();
         draw();
     }
 
@@ -140,6 +200,7 @@ public class EditorCanvas extends Canvas {
                     if (p != null && p.isUsed()) {
                         onActivePad = true;
                         p.deactivate(); // On delete le pad
+                        saveState();
                     }
                 }
 
@@ -155,14 +216,29 @@ public class EditorCanvas extends Canvas {
             if (hoverGridX == null || hoverGridY == null) return;
             Pad clickedPad = board.getPad(hoverGridX, hoverGridY);
             if (clickedPad != null) {
-                clickedPad.activate();
-                if (currentTrace == null) {
-                    currentTrace = new Trace(activeLayer, currentTraceWidth);
-                    currentTrace.addPoint(hoverGridX, hoverGridY);
-                    board.addTrace(currentTrace);
-                } else {
-                    currentTrace.addPoint(hoverGridX, hoverGridY);
-                    if (!isCommandPressed) endCurrentTrace();
+                boolean isWiring = (currentTool == Tool.WIRE) || (currentTool == Tool.PADS && isCommandPressed);
+
+                if (currentTool == Tool.PADS && !isCommandPressed) {
+                    if (!clickedPad.isUsed()) {
+                        clickedPad.activate();
+                        saveState();
+                    }
+                }
+
+                if (isWiring) {
+                    if (currentTrace == null) {
+                        currentTrace = new Trace(activeLayer, currentTraceWidth);
+                        currentTrace.addPoint(hoverGridX, hoverGridY);
+                        board.addTrace(currentTrace);
+                        // Ne pas sauvegarder l'état ici, on attend que la trace soit finie
+                    } else {
+                        currentTrace.addPoint(hoverGridX, hoverGridY);
+                        if (!isCommandPressed && currentTool != Tool.WIRE) {
+                            endCurrentTrace();
+                        }
+                    }
+                } else if (currentTrace != null) {
+                    endCurrentTrace();
                 }
                 draw();
             }
@@ -178,7 +254,12 @@ public class EditorCanvas extends Canvas {
         int splitIndex = -1;
         double threshold = 1.2;
 
+        Trace.Layer deletableLayer = activeLayer;
+
         for (Trace trace : board.getTraces()) {
+            if (trace.getLayer() != deletableLayer) {
+                continue;
+            }
             List<Trace.GridPoint> pts = trace.getSegments();
             for (int i = 0; i < pts.size() - 1; i++) {
                 double x1 = pts.get(i).x() * board.getGridSpacing();
@@ -209,6 +290,7 @@ public class EditorCanvas extends Canvas {
                 for (Trace.GridPoint p : partB) nB.addPoint(p.x(), p.y());
                 board.addTrace(nB);
             }
+            saveState();
         }
     }
 
@@ -223,7 +305,11 @@ public class EditorCanvas extends Canvas {
 
     public void endCurrentTrace() {
         if (currentTrace != null) {
-            if (currentTrace.getSegments().size() < 2) board.removeTrace(currentTrace);
+            if (currentTrace.getSegments().size() < 2) {
+                board.removeTrace(currentTrace);
+            } else {
+                saveState(); // Save state only if trace actually added points
+            }
             currentTrace = null;
             draw();
         }
@@ -253,7 +339,9 @@ public class EditorCanvas extends Canvas {
             }
         }
 
-        if (currentTool == Tool.DRAW && currentTrace != null && hoverGridX != null && hoverGridY != null) {
+        boolean isWiring = (currentTool == Tool.WIRE) || (currentTool == Tool.PADS && isCommandPressed);
+
+        if (isWiring && currentTrace != null && hoverGridX != null && hoverGridY != null) {
             List<Trace.GridPoint> segments = currentTrace.getSegments();
             if (!segments.isEmpty()) {
                 Trace.GridPoint lastPt = segments.get(segments.size() - 1);
@@ -261,7 +349,7 @@ public class EditorCanvas extends Canvas {
                 gc.setLineDashes(physicalToScreen(1.5), physicalToScreen(1.5));
                 gc.setStroke(activeLayer == Trace.Layer.TOP ? Color.web("#E74C3C", 0.6) : Color.web("#3498DB", 0.6));
                 gc.strokeLine(getScreenX(lastPt.x()), getScreenY(lastPt.y()), getScreenX(hoverGridX), getScreenY(hoverGridY));
-                gc.setLineDashes(null);
+                gc.setLineDashes((double[]) null);
             }
         }
 
@@ -270,7 +358,7 @@ public class EditorCanvas extends Canvas {
         gc.setLineWidth(1.0);
         gc.setLineDashes(5.0);
         gc.strokeRect(padding, padding, physicalToScreen((board.getColumns() - 1) * board.getGridSpacing()), physicalToScreen((board.getRows() - 1) * board.getGridSpacing()));
-        gc.setLineDashes(null);
+        gc.setLineDashes((double[]) null);
 
         for (int x = 0; x < board.getColumns(); x++) {
             for (int y = 0; y < board.getRows(); y++) {
@@ -318,5 +406,8 @@ public class EditorCanvas extends Canvas {
         this.board = newBoard;
         updateSize();
         draw();
+        undoStack.clear();
+        redoStack.clear();
+        saveState(); // Save initial loaded state
     }
 }

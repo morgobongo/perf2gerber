@@ -56,6 +56,7 @@ public class Board {
         // 1. Recreate grid and copy old pad states with the correct offset
         for (int x = 0; x < newColumns; x++) {
             for (int y = 0; y < newRows; y++) {
+                // On utilise le defaultCopperDiameter qui est mis à jour dynamiquement
                 newGrid[x][y] = new Pad(x, y, defaultCopperDiameter, defaultHoleDiameter);
 
                 // Map to the old grid to see if it was used
@@ -88,6 +89,26 @@ public class Board {
             return grid[x][y];
         }
         return null;
+    }
+
+    // --- NOUVELLE FONCTIONNALITÉ : REDIMENSIONNEMENT GLOBAL DES PADS ---
+
+    /**
+     * Modifie le diamètre de cuivre de TOUTES les pastilles (Pads) du circuit.
+     * Utile pour agrandir la surface de soudure globale.
+     * @param newCopperDiameterMm Le nouveau diamètre en millimètres (ex: 2.5)
+     */
+    public void setGlobalPadCopperDiameter(double newCopperDiameterMm) {
+        this.defaultCopperDiameter = newCopperDiameterMm; // <-- Correction pour les futurs agrandissements du board !
+
+        for (int x = 0; x < columns; x++) {
+            for (int y = 0; y < rows; y++) {
+                Pad pad = getPad(x, y);
+                if (pad != null) {
+                    pad.setCopperDiameter(newCopperDiameterMm);
+                }
+            }
+        }
     }
 
     public void addTrace(Trace trace) {
