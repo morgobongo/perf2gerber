@@ -16,6 +16,7 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import java.util.prefs.Preferences;
 
 import java.util.Optional;
 
@@ -33,16 +34,20 @@ public class App extends Application {
     private ToggleButton btnText;
     private ToggleButton btnErase;
     private ToggleGroup toolGroup;
-    // NOUVEAU : Mémoire des touches simples (accepte Shift, Command, Option, etc.)
+    // NOUVEAU : Mémoire des touches simples et Préférences persistantes
     private java.util.Map<EditorCanvas.Tool, KeyCode> shortcuts = new java.util.EnumMap<>(EditorCanvas.Tool.class);
-    private ToggleButton previousToolButton = null; // Mémorise l'outil avant le maintien de la touche
+    private ToggleButton previousToolButton = null;
+
+    // L'outil magique de Java qui retient les réglages sur ton ordinateur
+    private Preferences prefs = Preferences.userNodeForPackage(App.class);
 
     {
-        shortcuts.put(EditorCanvas.Tool.POINTER, KeyCode.V);
-        shortcuts.put(EditorCanvas.Tool.PADS, KeyCode.P);
-        shortcuts.put(EditorCanvas.Tool.WIRE, KeyCode.SHIFT); // Par défaut, on remet Shift pour le Wire !
-        shortcuts.put(EditorCanvas.Tool.ERASE, KeyCode.E);
-        shortcuts.put(EditorCanvas.Tool.TEXT, KeyCode.T);
+        // On charge depuis la mémoire, avec une valeur par défaut en plan B
+        shortcuts.put(EditorCanvas.Tool.POINTER, KeyCode.valueOf(prefs.get("SHORTCUT_POINTER", "V")));
+        shortcuts.put(EditorCanvas.Tool.PADS, KeyCode.valueOf(prefs.get("SHORTCUT_PADS", "P")));
+        shortcuts.put(EditorCanvas.Tool.WIRE, KeyCode.valueOf(prefs.get("SHORTCUT_WIRE", "SHIFT")));
+        shortcuts.put(EditorCanvas.Tool.ERASE, KeyCode.valueOf(prefs.get("SHORTCUT_ERASE", "E")));
+        shortcuts.put(EditorCanvas.Tool.TEXT, KeyCode.valueOf(prefs.get("SHORTCUT_TEXT", "T")));
     }
 
     private Label lblSize;
@@ -117,6 +122,7 @@ public class App extends Application {
                 canvas.endCurrentTrace();
                 btnPointer.setSelected(true);
                 previousToolButton = null;
+                canvas.setCommandPressed(false); // Sécurité
                 return;
             }
 
@@ -128,12 +134,19 @@ public class App extends Application {
             else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
             else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
 
-            // Logique de "Ressort" : On active l'outil et on mémorise l'ancien
-            if (targetButton != null && !targetButton.isSelected()) {
-                if (previousToolButton == null) {
-                    previousToolButton = (ToggleButton) toolGroup.getSelectedToggle();
+            if (targetButton != null) {
+                // NOUVEAU : Si on maintient le raccourci Wire, on active le mode "Continu" !
+                if (targetButton == btnWire) {
+                    canvas.setCommandPressed(true);
                 }
-                targetButton.setSelected(true);
+
+                // Logique de "Ressort"
+                if (!targetButton.isSelected()) {
+                    if (previousToolButton == null) {
+                        previousToolButton = (ToggleButton) toolGroup.getSelectedToggle();
+                    }
+                    targetButton.setSelected(true);
+                }
             }
         });
 
@@ -148,11 +161,18 @@ public class App extends Application {
             else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
             else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
 
-            // Si on relâche la touche de l'outil ACTUEL, on restaure l'ancien outil !
-            if (targetButton != null && targetButton.isSelected() && previousToolButton != null) {
-                canvas.endCurrentTrace(); // Coupe le fil proprement si on était en train de tracer
-                previousToolButton.setSelected(true); // Retour à la normale
-                previousToolButton = null; // On vide la mémoire
+            if (targetButton != null) {
+                // NOUVEAU : Si on relâche le raccourci Wire, on coupe le fil et le mode continu
+                if (targetButton == btnWire) {
+                    canvas.setCommandPressed(false);
+                    canvas.endCurrentTrace();
+                }
+
+                // Si on relâche la touche et qu'on était en mode "Ressort", on restaure l'ancien outil
+                if (targetButton.isSelected() && previousToolButton != null) {
+                    previousToolButton.setSelected(true); // Retour à la normale
+                    previousToolButton = null; // On vide la mémoire
+                }
             }
         });
 
@@ -270,11 +290,12 @@ public class App extends Application {
         btnErase.setToggleGroup(toolGroup);
         btnText.setToggleGroup(toolGroup);
 
-        // NOUVEAU : Gère la couleur ET le changement d'outil en même temps !
+        // NOUVEAU : Gère la couleur, le changement d'outil, ET le retour au pointeur !
         toolGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (oldVal != null) {
                 ((ToggleButton) oldVal).setStyle(""); // Enlève le vert de l'ancien
             }
+
             if (newVal != null) {
                 ((ToggleButton) newVal).setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
 
@@ -284,6 +305,10 @@ public class App extends Application {
                 else if (newVal == btnWire) canvas.setTool(EditorCanvas.Tool.WIRE);
                 else if (newVal == btnErase) canvas.setTool(EditorCanvas.Tool.ERASE);
                 else if (newVal == btnText) canvas.setTool(EditorCanvas.Tool.TEXT);
+            } else {
+                // LA MAGIE EST ICI : Si aucun bouton n'est sélectionné (ex: on a cliqué sur le bouton actif)
+                // On force le retour au pointeur par défaut.
+                btnPointer.setSelected(true);
             }
         });
 
@@ -625,13 +650,19 @@ public class App extends Application {
 
         Optional<ButtonType> result = dialog.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
-            // On récupère les touches sauvegardées en arrière-plan (UserData)
-            if (txtPointer.getUserData() != null) shortcuts.put(EditorCanvas.Tool.POINTER, (KeyCode) txtPointer.getUserData());
-            if (txtPads.getUserData() != null) shortcuts.put(EditorCanvas.Tool.PADS, (KeyCode) txtPads.getUserData());
-            if (txtWire.getUserData() != null) shortcuts.put(EditorCanvas.Tool.WIRE, (KeyCode) txtWire.getUserData());
-            if (txtErase.getUserData() != null) shortcuts.put(EditorCanvas.Tool.ERASE, (KeyCode) txtErase.getUserData());
-            if (txtText.getUserData() != null) shortcuts.put(EditorCanvas.Tool.TEXT, (KeyCode) txtText.getUserData());
+            // On utilise une petite fonction pour mettre à jour ET sauvegarder
+            if (txtPointer.getUserData() != null) updateShortcut(EditorCanvas.Tool.POINTER, (KeyCode) txtPointer.getUserData());
+            if (txtPads.getUserData() != null) updateShortcut(EditorCanvas.Tool.PADS, (KeyCode) txtPads.getUserData());
+            if (txtWire.getUserData() != null) updateShortcut(EditorCanvas.Tool.WIRE, (KeyCode) txtWire.getUserData());
+            if (txtErase.getUserData() != null) updateShortcut(EditorCanvas.Tool.ERASE, (KeyCode) txtErase.getUserData());
+            if (txtText.getUserData() != null) updateShortcut(EditorCanvas.Tool.TEXT, (KeyCode) txtText.getUserData());
         }
+    }
+
+    // --- NOUVELLE PETITE MÉTHODE DE SAUVEGARDE ---
+    private void updateShortcut(EditorCanvas.Tool tool, KeyCode code) {
+        shortcuts.put(tool, code); // Met à jour pour la session active
+        prefs.put("SHORTCUT_" + tool.name(), code.name()); // Sauvegarde sur le disque pour la prochaine fois !
     }
 
     private TextField createKeyCatcher(EditorCanvas.Tool tool) {

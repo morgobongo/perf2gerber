@@ -203,28 +203,27 @@ public class GerberExporter {
 
             if (board.getTextLabels() != null) {
                 // Utilisation de AWT pour extraire la géométrie vectorielle du texte
-                java.awt.Font font = new java.awt.Font("Monospaced", java.awt.Font.BOLD, 10);
+                java.awt.Font baseFont = new java.awt.Font("Monospaced", java.awt.Font.BOLD, 10);
                 java.awt.font.FontRenderContext frc = new java.awt.font.FontRenderContext(null, false, false);
 
                 for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
                     if (label.getLayer() == layer) {
-                        // Taille approximative de 2.0mm pour être lisible
-                        java.awt.Font scaledFont = font.deriveFont(2.0f);
+                        // NOUVEAU : On utilise la VRAIE taille du texte !
+                        java.awt.Font scaledFont = baseFont.deriveFont((float) label.getFontSize());
                         java.awt.font.GlyphVector gv = scaledFont.createGlyphVector(frc, label.getText());
 
                         java.awt.geom.Rectangle2D bounds = gv.getVisualBounds();
                         java.awt.geom.AffineTransform at = new java.awt.geom.AffineTransform();
 
-                        // Centrage du texte et gestion de l'effet miroir pour la face arrière
+                        // Centrage, miroir et ROTATION
+                        at.translate(toGerber(label.getX()) / SCALE, toGerber(label.getY()) / SCALE);
                         if (layer == Trace.Layer.BOTTOM) {
-                            at.translate(label.getX(), label.getY());
-                            at.scale(-1, -1); // Miroir (Bottom) + Inversion Y (Gerber est Y-up)
-                            at.translate(-bounds.getCenterX(), -bounds.getCenterY());
+                            at.scale(-1, -1); // Miroir pour la face arrière
                         } else {
-                            at.translate(label.getX(), label.getY());
-                            at.scale(1, -1);  // Inversion Y uniquement (Top)
-                            at.translate(-bounds.getCenterX(), -bounds.getCenterY());
+                            at.scale(1, -1);  // Inversion Y standard Gerber
                         }
+                        at.rotate(Math.toRadians(label.getRotation()));
+                        at.translate(-bounds.getCenterX(), -bounds.getCenterY());
 
                         java.awt.Shape shape = at.createTransformedShape(gv.getOutline());
                         // On aplatit les courbes en lignes droites (précision 0.05mm)

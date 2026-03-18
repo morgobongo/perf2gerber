@@ -44,6 +44,9 @@ public class EditorCanvas extends Canvas {
     
     private boolean isUndoingOrRedoing = false;
 
+    // Variable pour mémoriser le texte qu'on est en train de déplacer avec le pointeur
+    private com.perf2gerber.model.TextLabel draggedTextLabel = null;
+
     public EditorCanvas(Board board) {
         this.board = board;
         updateSize();
@@ -191,7 +194,25 @@ public class EditorCanvas extends Canvas {
 
         this.setOnMouseDragged(event -> {
             updateHoverPosition(event.getX(), event.getY());
+
+            // Si on est en train de glisser un texte avec le Pointeur
+            if (currentTool == Tool.POINTER && draggedTextLabel != null) {
+                double newPhysX = (event.getX() - padding) / zoomLevel;
+                if (isViewFlipped) newPhysX = (board.getColumns() - 1) * board.getGridSpacing() - newPhysX;
+                double newPhysY = ((board.getRows() - 1) * board.getGridSpacing()) - ((event.getY() - padding) / zoomLevel);
+
+                draggedTextLabel.setX(newPhysX);
+                draggedTextLabel.setY(newPhysY);
+            }
+
             draw();
+        });
+
+        this.setOnMouseReleased(event -> {
+            if (draggedTextLabel != null) {
+                draggedTextLabel = null; // On lâche le texte
+                saveState(); // On sauvegarde l'état pour que "Undo" fonctionne !
+            }
         });
 
         this.setOnMouseExited(event -> {
@@ -201,28 +222,70 @@ public class EditorCanvas extends Canvas {
         });
 
         this.setOnMousePressed(event -> {
+            // --- 1. LOGIQUE DU POINTEUR (Attraper un texte) ---
+            if (currentTool == Tool.POINTER) {
+                double physXClick = (event.getX() - padding) / zoomLevel;
+                if (isViewFlipped) physXClick = (board.getColumns() - 1) * board.getGridSpacing() - physXClick;
+                double physYClick = ((board.getRows() - 1) * board.getGridSpacing()) - ((event.getY() - padding) / zoomLevel);
+
+                // Cherche si on a cliqué sur un texte de la couche active
+                if (board.getTextLabels() != null) {
+                    for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
+                        if (label.getLayer() == activeLayer) {
+                            // Hitbox un peu plus large (3.0mm) pour faciliter la sélection
+                            if (Math.abs(label.getX() - physXClick) < 3.0 && Math.abs(label.getY() - physYClick) < 3.0) {
+                                draggedTextLabel = label;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return; // En mode pointeur, on ne fait rien d'autre au clic
+            }
+
+            // --- 2. LOGIQUE DE L'OUTIL TEXTE (Ajout avec taille et rotation) ---
             if (currentTool == Tool.TEXT) {
                 if (hoverGridX != null && hoverGridY != null) {
-                    javafx.scene.control.TextInputDialog dialog = new javafx.scene.control.TextInputDialog("Texte");
+                    javafx.scene.control.Dialog<com.perf2gerber.model.TextLabel> dialog = new javafx.scene.control.Dialog<>();
                     dialog.setTitle("Ajouter un texte");
-                    dialog.setHeaderText("Texte pour le Silkscreen (Sérigraphie)");
-                    dialog.setContentText("Texte :");
+                    dialog.getDialogPane().getButtonTypes().addAll(javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
 
-                    dialog.showAndWait().ifPresent(text -> {
-                        double physX = hoverGridX * board.getGridSpacing();
-                        double physY = hoverGridY * board.getGridSpacing();
-                        board.addTextLabel(new com.perf2gerber.model.TextLabel(text, activeLayer, physX, physY));
-                        saveState(); // <-- SAUVEGARDE DÉPLACÉE ICI (APRÈS l'ajout)
+                    javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
+                    grid.setHgap(10); grid.setVgap(10);
+
+                    javafx.scene.control.TextField textF = new javafx.scene.control.TextField("Texte");
+                    javafx.scene.control.TextField sizeF = new javafx.scene.control.TextField("2.0");
+                    javafx.scene.control.TextField rotF = new javafx.scene.control.TextField("0");
+
+                    grid.add(new javafx.scene.control.Label("Texte:"), 0, 0); grid.add(textF, 1, 0);
+                    grid.add(new javafx.scene.control.Label("Taille (mm):"), 0, 1); grid.add(sizeF, 1, 1);
+                    grid.add(new javafx.scene.control.Label("Rotation (°):"), 0, 2); grid.add(rotF, 1, 2);
+                    dialog.getDialogPane().setContent(grid);
+                    javafx.application.Platform.runLater(textF::requestFocus);
+
+                    dialog.setResultConverter(btn -> {
+                        if (btn == javafx.scene.control.ButtonType.OK) {
+                            try {
+                                double physX = hoverGridX * board.getGridSpacing();
+                                double physY = hoverGridY * board.getGridSpacing();
+                                return new com.perf2gerber.model.TextLabel(textF.getText(), activeLayer, physX, physY,
+                                        Double.parseDouble(sizeF.getText()), Double.parseDouble(rotF.getText()));
+                            } catch(Exception e) { return null; }
+                        }
+                        return null;
+                    });
+
+                    dialog.showAndWait().ifPresent(label -> {
+                        board.addTextLabel(label);
+                        saveState();
                         draw();
                     });
                 }
                 return;
             }
 
-            // --- LOGIQUE D'EFFACEMENT SÉLECTIVE ---
+            // --- 3. LOGIQUE D'EFFACEMENT SÉLECTIVE ---
             if (currentTool == Tool.ERASE) {
-
-                // 1. Essayer d'effacer du texte en premier (hitbox de 2mm)
                 double physXClick = (event.getX() - padding) / zoomLevel;
                 if (isViewFlipped) physXClick = (board.getColumns() - 1) * board.getGridSpacing() - physXClick;
                 double physYClick = ((board.getRows() - 1) * board.getGridSpacing()) - ((event.getY() - padding) / zoomLevel);
@@ -242,21 +305,19 @@ public class EditorCanvas extends Canvas {
                     board.getTextLabels().remove(textToRemove);
                     saveState();
                     draw();
-                    return; // On sort pour ne pas effacer un pad en même temps
+                    return;
                 }
 
-                // 2. Sinon, est-on sur un pad actif ?
                 boolean onActivePad = false;
                 if (hoverGridX != null && hoverGridY != null) {
                     Pad p = board.getPad(hoverGridX, hoverGridY);
                     if (p != null && p.isUsed()) {
                         onActivePad = true;
-                        p.deactivate(); // On delete le pad
+                        p.deactivate();
                         saveState();
                     }
                 }
 
-                // 3. Sinon, on cherche à effacer une trace
                 if (!onActivePad) {
                     eraseSegmentAt(event.getX(), event.getY());
                 }
@@ -264,7 +325,7 @@ public class EditorCanvas extends Canvas {
                 return;
             }
 
-            // --- DESSIN ---
+            // --- 4. DESSIN (Pads & Traces) ---
             if (hoverGridX == null || hoverGridY == null) return;
             Pad clickedPad = board.getPad(hoverGridX, hoverGridY);
             if (clickedPad != null) {
@@ -282,10 +343,13 @@ public class EditorCanvas extends Canvas {
                         currentTrace = new Trace(activeLayer, currentTraceWidth);
                         currentTrace.addPoint(hoverGridX, hoverGridY);
                         board.addTrace(currentTrace);
-                        // Ne pas sauvegarder l'état ici, on attend que la trace soit finie
                     } else {
                         currentTrace.addPoint(hoverGridX, hoverGridY);
-                        if (!isCommandPressed && currentTool != Tool.WIRE) {
+
+                        // LA MODIFICATION EST ICI :
+                        // Si on N'EST PAS en mode continu (bouton cliqué au lieu du clavier),
+                        // on termine la trace dès le 2ème clic !
+                        if (!isCommandPressed) {
                             endCurrentTrace();
                         }
                     }
@@ -427,7 +491,6 @@ public class EditorCanvas extends Canvas {
         if (board.getTextLabels() != null) {
             gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
             gc.setTextBaseline(javafx.geometry.VPos.CENTER);
-            gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
 
             for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
                 boolean isActiveLayer = (label.getLayer() == activeLayer);
@@ -437,9 +500,24 @@ public class EditorCanvas extends Canvas {
                 double sx = getScreenXFromPhys(label.getX());
                 double sy = getScreenYFromPhys(label.getY());
 
-                gc.fillText(label.getText(), sx, sy);
+                // On applique la taille dynamique
+                gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(label.getFontSize())));
+
+                gc.save(); // On sauvegarde l'état du pinceau
+                gc.translate(sx, sy); // On se déplace au centre du texte
+
+                // Effet Miroir ultra pro pour le Bottom Layer !
+                if (label.getLayer() == Trace.Layer.BOTTOM && !isViewFlipped) {
+                    gc.scale(-1, 1);
+                } else if (label.getLayer() == Trace.Layer.TOP && isViewFlipped) {
+                    gc.scale(-1, 1);
+                }
+
+                gc.rotate(label.getRotation()); // On tourne
+                gc.fillText(label.getText(), 0, 0); // On dessine
+                gc.restore(); // On remet le pinceau normal
             }
-            gc.setGlobalAlpha(1.0); // Toujours remettre à 1.0 après !
+            gc.setGlobalAlpha(1.0);
         }
 
         // 6. HOVER RING INTELLIGENT
