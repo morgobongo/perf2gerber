@@ -29,6 +29,7 @@ public class App extends Application {
 
     private ToggleButton btnPads;
     private ToggleButton btnWire;
+    private ToggleButton btnText;
     private final String drawTextNormal = " Pads (Hold Shift to wire)";
     private final String drawTextContinuous = " Continuous ";
 
@@ -217,11 +218,13 @@ public class App extends Application {
         btnPads.setSelected(true);
         btnWire = new ToggleButton(" Wire");
         ToggleButton btnErase = new ToggleButton(" Erase");
+        btnText = new ToggleButton(" Text");
 
         ToggleGroup toolGroup = new ToggleGroup();
         btnPads.setToggleGroup(toolGroup);
         btnWire.setToggleGroup(toolGroup);
         btnErase.setToggleGroup(toolGroup);
+        btnText.setToggleGroup(toolGroup);
 
         btnPads.setOnAction(e -> {
             canvas.setTool(EditorCanvas.Tool.PADS);
@@ -240,6 +243,13 @@ public class App extends Application {
             btnPads.setText(" Pads (Hold Shift to wire)");
             btnWire.setText(" Wire");
         });
+        btnText.setOnAction(e -> {
+                    canvas.setTool(EditorCanvas.Tool.TEXT);
+                    btnPads.setText(" Pads (Hold Shift to wire)");
+                    btnWire.setText(" Wire");
+                    btnErase.setText(" Erase");
+        });
+
 
         Label lblView = new Label("View:");
         lblView.setTextFill(Color.WHITE);
@@ -281,7 +291,7 @@ public class App extends Application {
         });
 
         toolbar.getChildren().addAll(
-                btnPads, btnWire, btnErase,
+                btnPads, btnWire, btnErase, btnText,
                 lblView, viewBox,
                 lblLayer, layerBox,
                 lblWidth, widthBox,
@@ -504,6 +514,14 @@ public class App extends Application {
 
                 java.io.File bottomMaskFile = new java.io.File(tempDir.toFile(), "board.GBS");
                 com.perf2gerber.exporter.GerberExporter.exportSolderMask(board, bottomMaskFile);
+
+                // --- EXPORT DU SILKSCREEN (TEXTE) ---
+                java.io.File topSilkFile = new java.io.File(tempDir.toFile(), "board.GTO");
+                com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.TOP, topSilkFile);
+
+                java.io.File bottomSilkFile = new java.io.File(tempDir.toFile(), "board.GBO");
+                com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.BOTTOM, bottomSilkFile);
+                // ----------------------------------------------
 
                 try (java.io.FileOutputStream fos = new java.io.FileOutputStream(zipFile);
                      java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(fos)) {

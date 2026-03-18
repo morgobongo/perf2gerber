@@ -11,6 +11,7 @@ public class Board {
     private double gridSpacing;
     private double defaultCopperDiameter;
     private double defaultHoleDiameter;
+    private java.util.List<TextLabel> textLabels = new java.util.ArrayList<>();
 
     private Pad[][] grid;
     private final List<Trace> traces;
@@ -140,6 +141,22 @@ public class Board {
     }
 
     public List<Trace> getTraces() {
+
+
         return Collections.unmodifiableList(traces);
+    }
+
+        public java.util.List<TextLabel> getTextLabels() {
+            // Sécurité au cas où un ancien fichier GSON n'aurait pas cette liste
+            if (textLabels == null) {
+                textLabels = new java.util.ArrayList<>();
+            }
+            return textLabels;
+        }
+
+        public void addTextLabel(TextLabel label) {
+            getTextLabels().add(label);
+
+
     }
 }

@@ -186,4 +186,68 @@ public class GerberExporter {
     private static String formatCoord(int x, int y) {
         return String.format(Locale.US, "X%dY%d", x, y);
     }
+    /**
+     * Génère la couche Silkscreen (Sérigraphie) en convertissant le texte en tracés vectoriels.
+     */
+    public static void exportSilkscreenLayer(Board board, Trace.Layer layer, File file) throws IOException {
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write("G04 Fichier Silkscreen genere par Perf2Gerber*\n");
+            writer.write("%TF.GenerationSoftware,Perf2Gerber*%\n");
+            writer.write("%FSLAX44Y44*%\n");
+            writer.write("%MOMM*%\n");
+            writer.write("%LPD*%\n");
+
+            // Épaisseur du pinceau pour dessiner le texte (0.15mm est standard chez JLCPCB)
+            writer.write("%ADD10C,0.1500*%\n");
+            writer.write("D10*\n");
+
+            if (board.getTextLabels() != null) {
+                // Utilisation de AWT pour extraire la géométrie vectorielle du texte
+                java.awt.Font font = new java.awt.Font("Monospaced", java.awt.Font.BOLD, 10);
+                java.awt.font.FontRenderContext frc = new java.awt.font.FontRenderContext(null, false, false);
+
+                for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
+                    if (label.getLayer() == layer) {
+                        // Taille approximative de 2.0mm pour être lisible
+                        java.awt.Font scaledFont = font.deriveFont(2.0f);
+                        java.awt.font.GlyphVector gv = scaledFont.createGlyphVector(frc, label.getText());
+
+                        java.awt.geom.Rectangle2D bounds = gv.getVisualBounds();
+                        java.awt.geom.AffineTransform at = new java.awt.geom.AffineTransform();
+
+                        // Centrage du texte et gestion de l'effet miroir pour la face arrière
+                        if (layer == Trace.Layer.BOTTOM) {
+                            at.translate(label.getX(), label.getY());
+                            at.scale(-1, -1); // Miroir (Bottom) + Inversion Y (Gerber est Y-up)
+                            at.translate(-bounds.getCenterX(), -bounds.getCenterY());
+                        } else {
+                            at.translate(label.getX(), label.getY());
+                            at.scale(1, -1);  // Inversion Y uniquement (Top)
+                            at.translate(-bounds.getCenterX(), -bounds.getCenterY());
+                        }
+
+                        java.awt.Shape shape = at.createTransformedShape(gv.getOutline());
+                        // On aplatit les courbes en lignes droites (précision 0.05mm)
+                        java.awt.geom.PathIterator pi = shape.getPathIterator(null, 0.05);
+
+                        double[] coords = new double[6];
+                        while (!pi.isDone()) {
+                            int type = pi.currentSegment(coords);
+                            int gx = toGerber(coords[0]);
+                            int gy = toGerber(coords[1]);
+
+                            if (type == java.awt.geom.PathIterator.SEG_MOVETO) {
+                                writer.write(formatCoord(gx, gy) + "D02*\n"); // Lève le pinceau
+                            } else if (type == java.awt.geom.PathIterator.SEG_LINETO) {
+                                writer.write(formatCoord(gx, gy) + "D01*\n"); // Trace
+                            }
+                            pi.next();
+                        }
+                    }
+                }
+            }
+            writer.write("M02*\n");
+        }
+    }
+
 }
