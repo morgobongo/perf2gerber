@@ -17,7 +17,7 @@ import java.util.Stack;
 
 public class EditorCanvas extends Canvas {
 
-    public enum Tool { PADS, WIRE, ERASE, TEXT }
+    public enum Tool { POINTER, PADS, WIRE, ERASE, TEXT }
 
     private Board board;
     private double zoomLevel = 15.0;
@@ -27,7 +27,7 @@ public class EditorCanvas extends Canvas {
     private Trace.Layer activeLayer = Trace.Layer.BOTTOM;
     private double currentTraceWidth = 1.0;
 
-    private Tool currentTool = Tool.PADS;
+    private Tool currentTool = Tool.POINTER;
     private boolean isCommandPressed = false;
     private boolean isViewFlipped = false;
 

@@ -27,11 +27,23 @@ public class App extends Application {
     private Board board;
     private EditorCanvas canvas;
 
+    private ToggleButton btnPointer;
     private ToggleButton btnPads;
     private ToggleButton btnWire;
     private ToggleButton btnText;
-    private final String drawTextNormal = " Pads (Hold Shift to wire)";
-    private final String drawTextContinuous = " Continuous ";
+    private ToggleButton btnErase;
+    private ToggleGroup toolGroup;
+    // NOUVEAU : Mémoire des touches simples (accepte Shift, Command, Option, etc.)
+    private java.util.Map<EditorCanvas.Tool, KeyCode> shortcuts = new java.util.EnumMap<>(EditorCanvas.Tool.class);
+    private ToggleButton previousToolButton = null; // Mémorise l'outil avant le maintien de la touche
+
+    {
+        shortcuts.put(EditorCanvas.Tool.POINTER, KeyCode.V);
+        shortcuts.put(EditorCanvas.Tool.PADS, KeyCode.P);
+        shortcuts.put(EditorCanvas.Tool.WIRE, KeyCode.SHIFT); // Par défaut, on remet Shift pour le Wire !
+        shortcuts.put(EditorCanvas.Tool.ERASE, KeyCode.E);
+        shortcuts.put(EditorCanvas.Tool.TEXT, KeyCode.T);
+    }
 
     private Label lblSize;
     private Label lblPhysical;
@@ -98,31 +110,49 @@ public class App extends Application {
         Scene scene = new Scene(root, 1200, 800);
 
         scene.setOnKeyPressed(event -> {
-            if (event.getCode() == KeyCode.SHIFT) {
-                canvas.setCommandPressed(true);
-                if (btnPads.isSelected()) {
-                    btnPads.setText(" Wire ");
-                    btnPads.setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
-                } else if (btnWire.isSelected()) {
-                    btnWire.setText(drawTextContinuous);
-                    btnWire.setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
-                }
-            } else if (event.getCode() == KeyCode.ESCAPE) {
+            KeyCode code = event.getCode();
+
+            // Touche Échap pour tout annuler et revenir au pointeur
+            if (code == KeyCode.ESCAPE) {
                 canvas.endCurrentTrace();
+                btnPointer.setSelected(true);
+                previousToolButton = null;
+                return;
+            }
+
+            // Quel bouton correspond à la touche pressée ?
+            ToggleButton targetButton = null;
+            if (code == shortcuts.get(EditorCanvas.Tool.POINTER)) targetButton = btnPointer;
+            else if (code == shortcuts.get(EditorCanvas.Tool.PADS)) targetButton = btnPads;
+            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE)) targetButton = btnWire;
+            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
+            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
+
+            // Logique de "Ressort" : On active l'outil et on mémorise l'ancien
+            if (targetButton != null && !targetButton.isSelected()) {
+                if (previousToolButton == null) {
+                    previousToolButton = (ToggleButton) toolGroup.getSelectedToggle();
+                }
+                targetButton.setSelected(true);
             }
         });
 
         scene.setOnKeyReleased(event -> {
-            if (event.getCode() == KeyCode.SHIFT) {
-                canvas.setCommandPressed(false);
-                canvas.endCurrentTrace();
-                if (btnPads.isSelected()) {
-                    btnPads.setText(drawTextNormal);
-                    btnPads.setStyle("");
-                } else if (btnWire.isSelected()) {
-                    btnWire.setText(" Wire");
-                    btnWire.setStyle("");
-                }
+            KeyCode code = event.getCode();
+
+            // On cherche quel bouton vient d'être relâché
+            ToggleButton targetButton = null;
+            if (code == shortcuts.get(EditorCanvas.Tool.POINTER)) targetButton = btnPointer;
+            else if (code == shortcuts.get(EditorCanvas.Tool.PADS)) targetButton = btnPads;
+            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE)) targetButton = btnWire;
+            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
+            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
+
+            // Si on relâche la touche de l'outil ACTUEL, on restaure l'ancien outil !
+            if (targetButton != null && targetButton.isSelected() && previousToolButton != null) {
+                canvas.endCurrentTrace(); // Coupe le fil proprement si on était en train de tracer
+                previousToolButton.setSelected(true); // Retour à la normale
+                previousToolButton = null; // On vide la mémoire
             }
         });
 
@@ -159,10 +189,23 @@ public class App extends Application {
         MenuItem itemRedo = new MenuItem("Redo");
         itemRedo.setAccelerator(new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
         itemRedo.setOnAction(e -> canvas.redo());
+
+        Menu menuView = new Menu("View");
+        CheckMenuItem itemFlip = new CheckMenuItem("Back View (Flipped)");
+        itemFlip.setAccelerator(new KeyCodeCombination(KeyCode.F)); // Raccourci 'F' pour Flip
+        itemFlip.setOnAction(e -> canvas.setViewFlipped(itemFlip.isSelected()));
+        menuView.getItems().add(itemFlip);
+
+        // --- NOUVEAU : LE MENU SETTINGS ---
+        Menu menuSettings = new Menu("Settings");
+        MenuItem itemShortcuts = new MenuItem("Keyboard Shortcuts...");
+        itemShortcuts.setOnAction(e -> openShortcutsDialog());
+        menuSettings.getItems().add(itemShortcuts);
+        // ----------------------------------
         
         menuEdit.getItems().addAll(itemUndo, itemRedo);
         
-        menuBar.getMenus().addAll(menuFile, menuEdit);
+        menuBar.getMenus().addAll(menuFile, menuEdit, menuView, menuSettings);
         return menuBar;
     }
 
@@ -214,45 +257,38 @@ public class App extends Application {
         toolbar.setStyle("-fx-background-color: #2B2B2B;");
         toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        btnPads = new ToggleButton(drawTextNormal);
-        btnPads.setSelected(true);
+        btnPointer = new ToggleButton(" Pointer");
+        btnPads = new ToggleButton(" Pads");
         btnWire = new ToggleButton(" Wire");
-        ToggleButton btnErase = new ToggleButton(" Erase");
+        btnErase = new ToggleButton(" Erase");
         btnText = new ToggleButton(" Text");
 
-        ToggleGroup toolGroup = new ToggleGroup();
+        toolGroup = new ToggleGroup();
+        btnPointer.setToggleGroup(toolGroup);
         btnPads.setToggleGroup(toolGroup);
         btnWire.setToggleGroup(toolGroup);
         btnErase.setToggleGroup(toolGroup);
         btnText.setToggleGroup(toolGroup);
 
-        btnPads.setOnAction(e -> {
-            canvas.setTool(EditorCanvas.Tool.PADS);
-            btnPads.setText(drawTextNormal);
-            btnWire.setText(" Wire");
-            btnErase.setText(" Erase");
-        });
-        btnWire.setOnAction(e -> {
-            canvas.setTool(EditorCanvas.Tool.WIRE);
-            btnWire.setText(" Wire");
-            btnPads.setText(" Pads (Hold Shift to wire)");
-            btnErase.setText(" Erase");
-        });
-        btnErase.setOnAction(e -> {
-            canvas.setTool(EditorCanvas.Tool.ERASE);
-            btnPads.setText(" Pads (Hold Shift to wire)");
-            btnWire.setText(" Wire");
-        });
-        btnText.setOnAction(e -> {
-                    canvas.setTool(EditorCanvas.Tool.TEXT);
-                    btnPads.setText(" Pads (Hold Shift to wire)");
-                    btnWire.setText(" Wire");
-                    btnErase.setText(" Erase");
+        // NOUVEAU : Gère la couleur ET le changement d'outil en même temps !
+        toolGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
+            if (oldVal != null) {
+                ((ToggleButton) oldVal).setStyle(""); // Enlève le vert de l'ancien
+            }
+            if (newVal != null) {
+                ((ToggleButton) newVal).setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
+
+                // On met à jour l'outil du canvas en fonction du bouton qui vient de s'allumer
+                if (newVal == btnPointer) canvas.setTool(EditorCanvas.Tool.POINTER);
+                else if (newVal == btnPads) canvas.setTool(EditorCanvas.Tool.PADS);
+                else if (newVal == btnWire) canvas.setTool(EditorCanvas.Tool.WIRE);
+                else if (newVal == btnErase) canvas.setTool(EditorCanvas.Tool.ERASE);
+                else if (newVal == btnText) canvas.setTool(EditorCanvas.Tool.TEXT);
+            }
         });
 
-
-        Label lblView = new Label("View:");
-        lblView.setTextFill(Color.WHITE);
+        // On active le pointeur par défaut au lancement (ce qui le mettra en vert)
+        Platform.runLater(() -> btnPointer.setSelected(true));
 
         Label lblLayer = new Label(" Draw on:");
         lblLayer.setTextFill(Color.WHITE);
@@ -291,8 +327,8 @@ public class App extends Application {
         });
 
         toolbar.getChildren().addAll(
-                btnPads, btnWire, btnErase, btnText,
-                lblView, viewBox,
+                btnPointer, btnPads, btnWire, btnErase, btnText,
+                viewBox,
                 lblLayer, layerBox,
                 lblWidth, widthBox,
                 lblPadSize, padBox
@@ -560,6 +596,70 @@ public class App extends Application {
             dir.mkdirs();
         }
         return dir;
+    }
+
+    private void openShortcutsDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Keyboard Shortcuts");
+        dialog.setHeaderText("Click a box, then press ANY key (Command, Shift, Option, W...).");
+
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10); grid.setVgap(10);
+        grid.setPadding(new Insets(20, 50, 10, 10));
+
+        TextField txtPointer = createKeyCatcher(EditorCanvas.Tool.POINTER);
+        TextField txtPads = createKeyCatcher(EditorCanvas.Tool.PADS);
+        TextField txtWire = createKeyCatcher(EditorCanvas.Tool.WIRE);
+        TextField txtErase = createKeyCatcher(EditorCanvas.Tool.ERASE);
+        TextField txtText = createKeyCatcher(EditorCanvas.Tool.TEXT);
+
+        grid.add(new Label("Pointer Tool:"), 0, 0); grid.add(txtPointer, 1, 0);
+        grid.add(new Label("Pads Tool:"), 0, 1); grid.add(txtPads, 1, 1);
+        grid.add(new Label("Wire Tool:"), 0, 2); grid.add(txtWire, 1, 2);
+        grid.add(new Label("Erase Tool:"), 0, 3); grid.add(txtErase, 1, 3);
+        grid.add(new Label("Text Tool:"), 0, 4); grid.add(txtText, 1, 4);
+
+        dialog.getDialogPane().setContent(grid);
+
+        Optional<ButtonType> result = dialog.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            // On récupère les touches sauvegardées en arrière-plan (UserData)
+            if (txtPointer.getUserData() != null) shortcuts.put(EditorCanvas.Tool.POINTER, (KeyCode) txtPointer.getUserData());
+            if (txtPads.getUserData() != null) shortcuts.put(EditorCanvas.Tool.PADS, (KeyCode) txtPads.getUserData());
+            if (txtWire.getUserData() != null) shortcuts.put(EditorCanvas.Tool.WIRE, (KeyCode) txtWire.getUserData());
+            if (txtErase.getUserData() != null) shortcuts.put(EditorCanvas.Tool.ERASE, (KeyCode) txtErase.getUserData());
+            if (txtText.getUserData() != null) shortcuts.put(EditorCanvas.Tool.TEXT, (KeyCode) txtText.getUserData());
+        }
+    }
+
+    private TextField createKeyCatcher(EditorCanvas.Tool tool) {
+        TextField field = new TextField(shortcuts.get(tool).getName());
+        field.setEditable(false);
+
+        field.setOnMousePressed(e -> {
+            field.setText("Press key...");
+            field.setStyle("-fx-background-color: #FFF0A8;");
+        });
+
+        field.setOnKeyPressed(e -> {
+            KeyCode code = e.getCode();
+            if (code == KeyCode.UNDEFINED) return;
+
+            field.setText(code.getName()); // Va écrire "Command", "Shift", "V", etc.
+            field.setStyle("");
+            field.setUserData(code); // On cache le vrai code de la touche ici pour la sauvegarde
+        });
+
+        field.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            if (!newVal && field.getText().equals("Press key...")) {
+                field.setText(shortcuts.get(tool).getName());
+                field.setStyle("");
+            }
+        });
+
+        return field;
     }
 
     public static void main(String[] args) {
