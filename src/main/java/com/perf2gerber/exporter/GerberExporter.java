@@ -216,7 +216,7 @@ public class GerberExporter {
                         java.awt.geom.AffineTransform at = new java.awt.geom.AffineTransform();
 
                         // Centrage, miroir et ROTATION
-                        at.translate(toGerber(label.getX()) / SCALE, toGerber(label.getY()) / SCALE);
+                        at.translate(label.getX(), label.getY());
                         if (layer == Trace.Layer.BOTTOM) {
                             at.scale(-1, -1); // Miroir pour la face arrière
                         } else {
