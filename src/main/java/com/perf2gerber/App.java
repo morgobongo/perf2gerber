@@ -9,10 +9,14 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCodeCombination;
+import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import java.util.prefs.Preferences;
 
 import java.util.Optional;
 
@@ -24,9 +28,27 @@ public class App extends Application {
     private Board board;
     private EditorCanvas canvas;
 
-    private ToggleButton btnDraw;
-    private final String drawTextNormal = " Draw (Hold ⌘)";
-    private final String drawTextContinuous = " Continuous ";
+    private ToggleButton btnPointer;
+    private ToggleButton btnPads;
+    private ToggleButton btnWire;
+    private ToggleButton btnText;
+    private ToggleButton btnErase;
+    private ToggleGroup toolGroup;
+    // NOUVEAU : Mémoire des touches simples et Préférences persistantes
+    private java.util.Map<EditorCanvas.Tool, KeyCode> shortcuts = new java.util.EnumMap<>(EditorCanvas.Tool.class);
+    private ToggleButton previousToolButton = null;
+
+    // L'outil magique de Java qui retient les réglages sur ton ordinateur
+    private Preferences prefs = Preferences.userNodeForPackage(App.class);
+
+    {
+        // On charge depuis la mémoire, avec une valeur par défaut en plan B
+        shortcuts.put(EditorCanvas.Tool.POINTER, KeyCode.valueOf(prefs.get("SHORTCUT_POINTER", "V")));
+        shortcuts.put(EditorCanvas.Tool.PADS, KeyCode.valueOf(prefs.get("SHORTCUT_PADS", "P")));
+        shortcuts.put(EditorCanvas.Tool.WIRE, KeyCode.valueOf(prefs.get("SHORTCUT_WIRE", "SHIFT")));
+        shortcuts.put(EditorCanvas.Tool.ERASE, KeyCode.valueOf(prefs.get("SHORTCUT_ERASE", "E")));
+        shortcuts.put(EditorCanvas.Tool.TEXT, KeyCode.valueOf(prefs.get("SHORTCUT_TEXT", "T")));
+    }
 
     private Label lblSize;
     private Label lblPhysical;
@@ -36,17 +58,17 @@ public class App extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        int[] initialSize = showStartupDialog();
-        if (initialSize == null) {
-            Platform.exit();
+        this.board = showWelcomeScreen();
+        if (this.board == null) {
+            Platform.exit(); // Si on ferme la fenêtre ou qu'on fait "Exit", on quitte.
             return;
         }
 
-        int totalCols = initialSize[0] + 2;
-        int totalRows = initialSize[1] + 2;
-
-        board = new Board(totalCols, totalRows, 2.54, 2.0, 1.0);
-        canvas = new EditorCanvas(board);
+        canvas = new EditorCanvas(this.board);
+        canvas.setOnBoardReplaced(newBoard -> {
+            this.board = newBoard;
+            updateStatusBar();
+        });
 
         MenuBar menuBar = buildMenuBar();
         HBox toolbar = buildToolbar();
@@ -93,21 +115,64 @@ public class App extends Application {
         Scene scene = new Scene(root, 1200, 800);
 
         scene.setOnKeyPressed(event -> {
-            if (event.getCode().isModifierKey() && event.isShortcutDown()) {
-                canvas.setCommandPressed(true);
-                if (btnDraw.isSelected()) {
-                    btnDraw.setText(drawTextContinuous);
-                    btnDraw.setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
+            KeyCode code = event.getCode();
+
+            // Touche Échap pour tout annuler et revenir au pointeur
+            if (code == KeyCode.ESCAPE) {
+                canvas.endCurrentTrace();
+                btnPointer.setSelected(true);
+                previousToolButton = null;
+                canvas.setCommandPressed(false); // Sécurité
+                return;
+            }
+
+            // Quel bouton correspond à la touche pressée ?
+            ToggleButton targetButton = null;
+            if (code == shortcuts.get(EditorCanvas.Tool.POINTER)) targetButton = btnPointer;
+            else if (code == shortcuts.get(EditorCanvas.Tool.PADS)) targetButton = btnPads;
+            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE)) targetButton = btnWire;
+            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
+            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
+
+            if (targetButton != null) {
+                // NOUVEAU : Si on maintient le raccourci Wire, on active le mode "Continu" !
+                if (targetButton == btnWire) {
+                    canvas.setCommandPressed(true);
+                }
+
+                // Logique de "Ressort"
+                if (!targetButton.isSelected()) {
+                    if (previousToolButton == null) {
+                        previousToolButton = (ToggleButton) toolGroup.getSelectedToggle();
+                    }
+                    targetButton.setSelected(true);
                 }
             }
         });
 
         scene.setOnKeyReleased(event -> {
-            if (!event.isShortcutDown()) {
-                canvas.setCommandPressed(false);
-                canvas.endCurrentTrace();
-                btnDraw.setText(drawTextNormal);
-                btnDraw.setStyle("");
+            KeyCode code = event.getCode();
+
+            // On cherche quel bouton vient d'être relâché
+            ToggleButton targetButton = null;
+            if (code == shortcuts.get(EditorCanvas.Tool.POINTER)) targetButton = btnPointer;
+            else if (code == shortcuts.get(EditorCanvas.Tool.PADS)) targetButton = btnPads;
+            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE)) targetButton = btnWire;
+            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
+            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
+
+            if (targetButton != null) {
+                // NOUVEAU : Si on relâche le raccourci Wire, on coupe le fil et le mode continu
+                if (targetButton == btnWire) {
+                    canvas.setCommandPressed(false);
+                    canvas.endCurrentTrace();
+                }
+
+                // Si on relâche la touche et qu'on était en mode "Ressort", on restaure l'ancien outil
+                if (targetButton.isSelected() && previousToolButton != null) {
+                    previousToolButton.setSelected(true); // Retour à la normale
+                    previousToolButton = null; // On vide la mémoire
+                }
             }
         });
 
@@ -123,6 +188,7 @@ public class App extends Application {
         MenuItem itemNew = new MenuItem("New Project...");
         MenuItem itemOpen = new MenuItem("Open Project...");
         MenuItem itemSave = new MenuItem("Save");
+        itemSave.setAccelerator(new KeyCodeCombination(KeyCode.S, KeyCombination.SHORTCUT_DOWN));
         MenuItem itemSaveAs = new MenuItem("Save As...");
         SeparatorMenuItem sep = new SeparatorMenuItem();
         MenuItem itemExport = new MenuItem("Export to Gerber...");
@@ -134,7 +200,32 @@ public class App extends Application {
         itemExport.setOnAction(e -> exportToGerber());
 
         menuFile.getItems().addAll(itemNew, itemOpen, itemSave, itemSaveAs, sep, itemExport);
-        menuBar.getMenus().add(menuFile);
+        
+        Menu menuEdit = new Menu("Edit");
+        MenuItem itemUndo = new MenuItem("Undo");
+        itemUndo.setAccelerator(new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN));
+        itemUndo.setOnAction(e -> canvas.undo());
+        
+        MenuItem itemRedo = new MenuItem("Redo");
+        itemRedo.setAccelerator(new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
+        itemRedo.setOnAction(e -> canvas.redo());
+
+        Menu menuView = new Menu("View");
+        CheckMenuItem itemFlip = new CheckMenuItem("Back View (Flipped)");
+        itemFlip.setAccelerator(new KeyCodeCombination(KeyCode.F)); // Raccourci 'F' pour Flip
+        itemFlip.setOnAction(e -> canvas.setViewFlipped(itemFlip.isSelected()));
+        menuView.getItems().add(itemFlip);
+
+        // --- NOUVEAU : LE MENU SETTINGS ---
+        Menu menuSettings = new Menu("Settings");
+        MenuItem itemShortcuts = new MenuItem("Keyboard Shortcuts...");
+        itemShortcuts.setOnAction(e -> openShortcutsDialog());
+        menuSettings.getItems().add(itemShortcuts);
+        // ----------------------------------
+        
+        menuEdit.getItems().addAll(itemUndo, itemRedo);
+        
+        menuBar.getMenus().addAll(menuFile, menuEdit, menuView, menuSettings);
         return menuBar;
     }
 
@@ -175,6 +266,7 @@ public class App extends Application {
             board.resizeBoard(left, right, bottom, top);
             canvas.updateSize();
             updateStatusBar();
+            canvas.saveState();
         });
         return btn;
     }
@@ -185,27 +277,49 @@ public class App extends Application {
         toolbar.setStyle("-fx-background-color: #2B2B2B;");
         toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        btnDraw = new ToggleButton(drawTextNormal);
-        btnDraw.setSelected(true);
-        ToggleButton btnErase = new ToggleButton(" Erase");
+        btnPointer = new ToggleButton(" Pointer");
+        btnPads = new ToggleButton(" Pads");
+        btnWire = new ToggleButton(" Wire");
+        btnErase = new ToggleButton(" Erase");
+        btnText = new ToggleButton(" Text");
 
-        ToggleGroup toolGroup = new ToggleGroup();
-        btnDraw.setToggleGroup(toolGroup);
+        toolGroup = new ToggleGroup();
+        btnPointer.setToggleGroup(toolGroup);
+        btnPads.setToggleGroup(toolGroup);
+        btnWire.setToggleGroup(toolGroup);
         btnErase.setToggleGroup(toolGroup);
+        btnText.setToggleGroup(toolGroup);
 
-        btnDraw.setOnAction(e -> canvas.setTool(EditorCanvas.Tool.DRAW));
-        btnErase.setOnAction(e -> canvas.setTool(EditorCanvas.Tool.ERASE));
+        // NOUVEAU : Gère la couleur, le changement d'outil, ET le retour au pointeur !
+        toolGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
+            if (oldVal != null) {
+                ((ToggleButton) oldVal).setStyle(""); // Enlève le vert de l'ancien
+            }
 
-        // --- CORRECTION DE VISIBILITÉ ---
-        Label lblView = new Label("View:");
-        lblView.setTextFill(Color.WHITE);
+            if (newVal != null) {
+                ((ToggleButton) newVal).setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
+
+                // On met à jour l'outil du canvas en fonction du bouton qui vient de s'allumer
+                if (newVal == btnPointer) canvas.setTool(EditorCanvas.Tool.POINTER);
+                else if (newVal == btnPads) canvas.setTool(EditorCanvas.Tool.PADS);
+                else if (newVal == btnWire) canvas.setTool(EditorCanvas.Tool.WIRE);
+                else if (newVal == btnErase) canvas.setTool(EditorCanvas.Tool.ERASE);
+                else if (newVal == btnText) canvas.setTool(EditorCanvas.Tool.TEXT);
+            } else {
+                // LA MAGIE EST ICI : Si aucun bouton n'est sélectionné (ex: on a cliqué sur le bouton actif)
+                // On force le retour au pointeur par défaut.
+                btnPointer.setSelected(true);
+            }
+        });
+
+        // On active le pointeur par défaut au lancement (ce qui le mettra en vert)
+        Platform.runLater(() -> btnPointer.setSelected(true));
 
         Label lblLayer = new Label(" Draw on:");
         lblLayer.setTextFill(Color.WHITE);
 
         Label lblWidth = new Label(" Trace:");
         lblWidth.setTextFill(Color.WHITE);
-        // --------------------------------
 
         ComboBox<String> viewBox = new ComboBox<>();
         viewBox.getItems().addAll("Front View", "Back View (Flipped)");
@@ -225,21 +339,34 @@ public class App extends Application {
         widthBox.setValue(1.0);
         widthBox.setOnAction(e -> canvas.setCurrentTraceWidth(widthBox.getValue()));
 
-        // On utilise les nouveaux labels créés
+        Label lblPadSize = new Label(" Pad Size:");
+        lblPadSize.setTextFill(Color.WHITE);
+
+        ComboBox<Double> padBox = new ComboBox<>();
+        padBox.getItems().addAll(1.5, 1.8, 2.0, 2.2, 2.5);
+        padBox.setValue(2.0);
+        padBox.setOnAction(e -> {
+            board.setGlobalPadCopperDiameter(padBox.getValue());
+            canvas.draw();
+            canvas.saveState();
+        });
+
         toolbar.getChildren().addAll(
-                btnDraw, btnErase,
-                lblView, viewBox,
+                btnPointer, btnPads, btnWire, btnErase, btnText,
+                viewBox,
                 lblLayer, layerBox,
-                lblWidth, widthBox
+                lblWidth, widthBox,
+                lblPadSize, padBox
         );
 
         return toolbar;
     }
 
-    private int[] showStartupDialog() {
-        Dialog<int[]> dialog = new Dialog<>();
+    // --- MISE À JOUR : LA FENÊTRE DEMANDE MAINTENANT LE NOM DU PROJET ---
+    private Object[] showStartupDialog() {
+        Dialog<Object[]> dialog = new Dialog<>();
         dialog.setTitle("New Project");
-        dialog.setHeaderText("Define the USEFUL area of your board.");
+        dialog.setHeaderText("Define your project name and board size.");
 
         ButtonType createButtonType = new ButtonType("Create Board", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(createButtonType, ButtonType.CANCEL);
@@ -249,60 +376,121 @@ public class App extends Application {
         grid.setVgap(10);
         grid.setPadding(new Insets(20, 150, 10, 10));
 
+        TextField nameField = new TextField("MyAwesomeProject");
         TextField colsField = new TextField("22");
         TextField rowsField = new TextField("11");
 
-        grid.add(new Label("Width:"), 0, 0);
-        grid.add(colsField, 1, 0);
-        grid.add(new Label("Height:"), 0, 1);
-        grid.add(rowsField, 1, 1);
+        grid.add(new Label("Project Name:"), 0, 0);
+        grid.add(nameField, 1, 0);
+        grid.add(new Label("Width (holes):"), 0, 1);
+        grid.add(colsField, 1, 1);
+        grid.add(new Label("Height (holes):"), 0, 2);
+        grid.add(rowsField, 1, 2);
+
+        // Place le curseur directement dans la case du nom !
+        Platform.runLater(nameField::requestFocus);
 
         dialog.getDialogPane().setContent(grid);
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == createButtonType) {
                 try {
-                    return new int[]{Integer.parseInt(colsField.getText()), Integer.parseInt(rowsField.getText())};
+                    String projName = nameField.getText().trim();
+                    if (projName.isEmpty()) projName = "Untitled_Project";
+                    return new Object[]{projName, Integer.parseInt(colsField.getText()), Integer.parseInt(rowsField.getText())};
                 } catch (NumberFormatException e) {
-                    return new int[]{22, 11};
+                    return new Object[]{nameField.getText().trim(), 22, 11};
                 }
             }
             return null;
         });
 
-        Optional<int[]> result = dialog.showAndWait();
-        return result.orElse(null);
+        return dialog.showAndWait().orElse(null);
     }
 
-    // --- CLEANED PROJECT MANAGEMENT ---
+    // --- NOUVEAU : CRÉATION DU DOSSIER SPÉCIFIQUE AU PROJET ---
+    private Board handleNewProjectSetup(Object[] setupData) {
+        if (setupData == null) return null;
+
+        String projName = (String) setupData[0];
+        int cols = (Integer) setupData[1];
+        int rows = (Integer) setupData[2];
+
+        // 1. On crée le sous-dossier (ex: Documents/Perf2Gerber_Projects/MyAwesomeProject/)
+        java.io.File projDir = new java.io.File(getDefaultDirectory(), projName);
+        if (!projDir.exists()) {
+            projDir.mkdirs();
+        }
+
+        // 2. On pré-configure le fichier de sauvegarde (MyAwesomeProject.json)
+        this.currentFile = new java.io.File(projDir, projName + ".json");
+
+        return new Board(cols + 2, rows + 2, 2.54, 2.0, 1.0);
+    }
 
     private void startNewProject() {
-        int[] size = showStartupDialog();
-        if (size != null) {
-            this.board = new Board(size[0] + 2, size[1] + 2, 2.54, 2.0, 1.0);
+        Object[] setupData = showStartupDialog();
+        if (setupData != null) {
+            this.board = handleNewProjectSetup(setupData);
             canvas.setBoard(this.board);
-            currentFile = null;
+            updateStatusBar();
+            // On force une première sauvegarde silencieuse pour créer le fichier physique
+            saveProject();
+        }
+    }
+
+    // --- MISE À JOUR DE LA FENÊTRE D'ACCUEIL ---
+    private Board showWelcomeScreen() {
+        Alert welcome = new Alert(Alert.AlertType.CONFIRMATION);
+        welcome.setTitle("Perf2Gerber - Welcome");
+        welcome.setHeaderText("Let's build some circuits!");
+        welcome.setContentText("What would you like to do?");
+
+        ButtonType btnNew = new ButtonType("New Project");
+        ButtonType btnOpen = new ButtonType("Open Project");
+        ButtonType btnExit = new ButtonType("Exit", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        welcome.getButtonTypes().setAll(btnNew, btnOpen, btnExit);
+
+        Optional<ButtonType> result = welcome.showAndWait();
+        if (result.isPresent()) {
+            if (result.get() == btnNew) {
+                Object[] setupData = showStartupDialog();
+                return handleNewProjectSetup(setupData);
+            } else if (result.get() == btnOpen) {
+                return promptLoadBoard();
+            }
+        }
+        return null;
+    }
+
+    private void openProject() {
+        Board loaded = promptLoadBoard();
+        if (loaded != null) {
+            this.board = loaded;
+            canvas.setBoard(this.board);
             updateStatusBar();
         }
     }
 
-    private void openProject() {
+    private Board promptLoadBoard() {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Open Project");
+        fileChooser.setInitialDirectory(getDefaultDirectory());
         fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON (*.json)", "*.json"));
+
         java.io.File file = fileChooser.showOpenDialog(null);
         if (file != null) {
             try {
                 Board loadedBoard = ProjectManager.loadBoard(file);
                 if (loadedBoard != null) {
-                    this.board = loadedBoard;
-                    canvas.setBoard(this.board);
                     currentFile = file;
-                    updateStatusBar();
+                    return loadedBoard;
                 }
             } catch (Exception e) {
                 showError("Load Error", "Could not open project: " + e.getMessage());
             }
         }
+        return null;
     }
 
     private void saveProject() {
@@ -320,6 +508,14 @@ public class App extends Application {
     private void saveProjectAs() {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Save Project As");
+
+        // Si on est déjà dans un dossier de projet, on l'ouvre par défaut
+        if (currentFile != null && currentFile.getParentFile() != null) {
+            fileChooser.setInitialDirectory(currentFile.getParentFile());
+        } else {
+            fileChooser.setInitialDirectory(getDefaultDirectory());
+        }
+
         fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON (*.json)", "*.json"));
         java.io.File file = fileChooser.showSaveDialog(null);
         if (file != null) {
@@ -339,51 +535,55 @@ public class App extends Application {
         alert.showAndWait();
     }
 
-    // N'oubliez pas d'importer javafx.stage.DirectoryChooser tout en haut si votre IDE ne le fait pas !
-    // import javafx.stage.DirectoryChooser;
-    // import com.perf2gerber.exporter.GerberExporter;
-
     private void exportToGerber() {
-        // 1. On demande où sauvegarder le fichier ZIP
         javafx.stage.FileChooser fileChooser = new javafx.stage.FileChooser();
         fileChooser.setTitle("Save Gerber ZIP for JLCPCB");
-        fileChooser.setInitialFileName("Perf2Gerber_Project.zip");
+
+        // --- MISE À JOUR : EXPORTATION DIRECTEMENT DANS LE DOSSIER DU PROJET ---
+        if (currentFile != null && currentFile.getParentFile() != null) {
+            fileChooser.setInitialDirectory(currentFile.getParentFile());
+            // On pré-remplit intelligemment le nom du ZIP !
+            String projName = currentFile.getName().replace(".json", "");
+            fileChooser.setInitialFileName(projName + "_Gerber.zip");
+        } else {
+            fileChooser.setInitialDirectory(getDefaultDirectory());
+            fileChooser.setInitialFileName("Perf2Gerber_Project.zip");
+        }
+
         fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("ZIP Archive (*.zip)", "*.zip"));
 
         java.io.File zipFile = fileChooser.showSaveDialog(null);
 
         if (zipFile != null) {
             try {
-                // 2. On crée un dossier temporaire invisible pour générer les fichiers bruts
                 java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("gerber_export");
 
-                // --- GÉNÉRATION DES FICHIERS ---
-
-                // 1. Contour (Edge Cuts) -> Extension .GML (Gerber Mechanical Layer)
                 java.io.File edgeFile = new java.io.File(tempDir.toFile(), "board.GML");
                 com.perf2gerber.exporter.GerberExporter.exportEdgeCuts(board, edgeFile);
 
-                // 2. Perçage (Drill) -> Extension .DRL
                 java.io.File drillFile = new java.io.File(tempDir.toFile(), "board.DRL");
                 com.perf2gerber.exporter.GerberExporter.exportDrillFile(board, drillFile);
 
-                // 3. Cuivre Top (Top Copper) -> Extension .GTL
                 java.io.File topFile = new java.io.File(tempDir.toFile(), "board.GTL");
                 com.perf2gerber.exporter.GerberExporter.exportCopperLayer(board, Trace.Layer.TOP, topFile);
 
-                // 4. Cuivre Bottom (Bottom Copper) -> Extension .GBL
                 java.io.File bottomFile = new java.io.File(tempDir.toFile(), "board.GBL");
                 com.perf2gerber.exporter.GerberExporter.exportCopperLayer(board, Trace.Layer.BOTTOM, bottomFile);
 
-                // 5. Vernis Vert Top (Top Solder Mask) -> Extension .GTS
                 java.io.File topMaskFile = new java.io.File(tempDir.toFile(), "board.GTS");
                 com.perf2gerber.exporter.GerberExporter.exportSolderMask(board, topMaskFile);
 
-                // 6. Vernis Vert Bottom (Bottom Solder Mask) -> Extension .GBS
                 java.io.File bottomMaskFile = new java.io.File(tempDir.toFile(), "board.GBS");
                 com.perf2gerber.exporter.GerberExporter.exportSolderMask(board, bottomMaskFile);
 
-                // 3. On crée l'archive ZIP et on met les fichiers dedans
+                // --- EXPORT DU SILKSCREEN (TEXTE) ---
+                java.io.File topSilkFile = new java.io.File(tempDir.toFile(), "board.GTO");
+                com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.TOP, topSilkFile);
+
+                java.io.File bottomSilkFile = new java.io.File(tempDir.toFile(), "board.GBO");
+                com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.BOTTOM, bottomSilkFile);
+                // ----------------------------------------------
+
                 try (java.io.FileOutputStream fos = new java.io.FileOutputStream(zipFile);
                      java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(fos)) {
 
@@ -397,14 +597,12 @@ public class App extends Application {
                     }
                 }
 
-                // 4. Nettoyage : On supprime le dossier temporaire
                 java.io.File[] tempFiles = tempDir.toFile().listFiles();
                 if (tempFiles != null) {
                     for (java.io.File f : tempFiles) f.delete();
                 }
                 tempDir.toFile().delete();
 
-                // 5. Message de succès
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
                 alert.setTitle("Export Successful");
                 alert.setHeaderText("Gerber ZIP generated!");
@@ -415,6 +613,84 @@ public class App extends Application {
                 showError("Export Error", "Could not export ZIP: " + e.getMessage());
             }
         }
+    }
+
+    private java.io.File getDefaultDirectory() {
+        java.io.File dir = new java.io.File(System.getProperty("user.home"), "Documents/Perf2Gerber_Projects");
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        return dir;
+    }
+
+    private void openShortcutsDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Keyboard Shortcuts");
+        dialog.setHeaderText("Click a box, then press ANY key (Command, Shift, Option, W...).");
+
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10); grid.setVgap(10);
+        grid.setPadding(new Insets(20, 50, 10, 10));
+
+        TextField txtPointer = createKeyCatcher(EditorCanvas.Tool.POINTER);
+        TextField txtPads = createKeyCatcher(EditorCanvas.Tool.PADS);
+        TextField txtWire = createKeyCatcher(EditorCanvas.Tool.WIRE);
+        TextField txtErase = createKeyCatcher(EditorCanvas.Tool.ERASE);
+        TextField txtText = createKeyCatcher(EditorCanvas.Tool.TEXT);
+
+        grid.add(new Label("Pointer Tool:"), 0, 0); grid.add(txtPointer, 1, 0);
+        grid.add(new Label("Pads Tool:"), 0, 1); grid.add(txtPads, 1, 1);
+        grid.add(new Label("Wire Tool:"), 0, 2); grid.add(txtWire, 1, 2);
+        grid.add(new Label("Erase Tool:"), 0, 3); grid.add(txtErase, 1, 3);
+        grid.add(new Label("Text Tool:"), 0, 4); grid.add(txtText, 1, 4);
+
+        dialog.getDialogPane().setContent(grid);
+
+        Optional<ButtonType> result = dialog.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            // On utilise une petite fonction pour mettre à jour ET sauvegarder
+            if (txtPointer.getUserData() != null) updateShortcut(EditorCanvas.Tool.POINTER, (KeyCode) txtPointer.getUserData());
+            if (txtPads.getUserData() != null) updateShortcut(EditorCanvas.Tool.PADS, (KeyCode) txtPads.getUserData());
+            if (txtWire.getUserData() != null) updateShortcut(EditorCanvas.Tool.WIRE, (KeyCode) txtWire.getUserData());
+            if (txtErase.getUserData() != null) updateShortcut(EditorCanvas.Tool.ERASE, (KeyCode) txtErase.getUserData());
+            if (txtText.getUserData() != null) updateShortcut(EditorCanvas.Tool.TEXT, (KeyCode) txtText.getUserData());
+        }
+    }
+
+    // --- NOUVELLE PETITE MÉTHODE DE SAUVEGARDE ---
+    private void updateShortcut(EditorCanvas.Tool tool, KeyCode code) {
+        shortcuts.put(tool, code); // Met à jour pour la session active
+        prefs.put("SHORTCUT_" + tool.name(), code.name()); // Sauvegarde sur le disque pour la prochaine fois !
+    }
+
+    private TextField createKeyCatcher(EditorCanvas.Tool tool) {
+        TextField field = new TextField(shortcuts.get(tool).getName());
+        field.setEditable(false);
+
+        field.setOnMousePressed(e -> {
+            field.setText("Press key...");
+            field.setStyle("-fx-background-color: #FFF0A8;");
+        });
+
+        field.setOnKeyPressed(e -> {
+            KeyCode code = e.getCode();
+            if (code == KeyCode.UNDEFINED) return;
+
+            field.setText(code.getName()); // Va écrire "Command", "Shift", "V", etc.
+            field.setStyle("");
+            field.setUserData(code); // On cache le vrai code de la touche ici pour la sauvegarde
+        });
+
+        field.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            if (!newVal && field.getText().equals("Press key...")) {
+                field.setText(shortcuts.get(tool).getName());
+                field.setStyle("");
+            }
+        });
+
+        return field;
     }
 
     public static void main(String[] args) {

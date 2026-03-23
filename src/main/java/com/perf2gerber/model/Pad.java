@@ -8,7 +8,7 @@ public class Pad {
 
     private final int gridX;
     private final int gridY;
-    private final double copperDiameter;
+    private double copperDiameter;
     private final double holeDiameter;
     private boolean isUsed;
 
@@ -62,6 +62,8 @@ public class Pad {
         this.isUsed = false;
     }
 
+
+
     // --- Standard Getters ---
 
     public int getGridX() {
@@ -83,4 +85,9 @@ public class Pad {
     public boolean isUsed() {
         return isUsed;
     }
+
+    public void setCopperDiameter(double copperDiameter) {
+        this.copperDiameter = copperDiameter;
+    }
+
 }

@@ -1,72 +1,35 @@
 # Perf2Gerber
 
-Perf2Gerber est un outil de CAO (Conception Assistée par Ordinateur) léger, intuitif et fait sur mesure pour transformer vos prototypes sur plaques d'essai (perfboards/stripboards) en véritables circuits imprimés professionnels (PCB).
+Perf2Gerber est un outil de CAO léger conçu pour transformer des prototypes sur plaques d'essai (perfboards) en circuits imprimés (PCB) professionnels. Il offre un éditeur visuel intuitif basé sur une grille au pas standard de 2.54 mm et exporte directement les fichiers de fabrication industriels.
 
-Que vous soyez en train de concevoir une nouvelle pédale d'effet pour guitare, un module de synthétiseur matériel, ou n'importe quel circuit électronique sur une grille au pas de 2.54 mm, Perf2Gerber vous permet de dessiner vos connexions visuellement et d'exporter instantanément les fichiers de fabrication industriels.
+## Fonctionnalités
 
-## Fonctionnalités principales
+- **Éditeur visuel 2.54mm** : Routage rapide de pistes avec gestion personnalisée de l'épaisseur.
+- **Double face** : Support des couches de cuivre Top (Rouge) et Bottom (Bleu) avec option de vue inversée (Back View).
+- **Sérigraphie** : Ajout de textes personnalisables (taille, rotation) et librement déplaçables.
+- **Ergonomie optimisée** : Outils dynamiques ("Spring-loaded" par maintien de touche), gomme sélective et historique complet (Undo/Redo).
+- **Raccourcis persistants** : Configuration des touches sauvegardée nativement pour les futures sessions.
 
-- Éditeur visuel intuitif : Dessinez vos pistes de cuivre directement sur une grille perforée virtuelle.
-- Routage double face : Support des couches de cuivre supérieures (Top - Rouge) et inférieures (Bottom - Bleu).
-- Gomme "chirurgicale" : Effacez des segments de piste précis ou déconnectez des pastilles sans détruire tout votre routage.
-- Interpolation et snapping : Le logiciel comprend vos intentions, fusionne les pistes et active les pastilles traversées automatiquement.
-- Largeur de piste ajustable : Choisissez l'épaisseur de vos pistes selon vos besoins en courant.
-- Sauvegarde JSON : Enregistrez vos projets et reprenez-les plus tard.
-- Exportation "1-click" pour usine : Génère automatiquement une archive `.zip` contenant la "Sainte Trinité" des fichiers Gerber (RS-274X) et Excellon, prête à être envoyée aux fabricants.
+## Fichiers d'exportation (Standard Gerber RS-274X)
 
-## Compatibilité de fabrication (JLCPCB, NextPCB, PCBWay...)
+L'exportation génère une archive `.zip` en un clic, contenant la suite standard de fichiers requise par n'importe quel fabricant de circuits imprimés :
 
-Le bouton **Export to Gerber...** génère une archive contenant toutes les couches nécessaires pour une production industrielle standard :
+- `board.GML` : Contour physique de la carte (Edge Cuts).
+- `board.DRL` : Fichier de perçage au format Excellon (trous traversants).
+- `board.GTL` et `board.GBL` : Couches de routage en cuivre (Top et Bottom).
+- `board.GTS` et `board.GBS` : Masques de soudure (Solder Mask / vernis d'épargne). Indiquent à l'usine où exposer le cuivre pour la soudure.
+- `board.GTO` et `board.GBO` : Couches de sérigraphie (Silkscreen Top et Bottom) contenant vos textes et indications.
 
-- `board.GML` : Contour de la carte (Edge Cuts) avec un décalage de sécurité automatique.
-- `board.DRL` : Fichier de perçage (Excellon / trous traversants).
-- `board.GTL` et `board.GBL` : Couches de cuivre (Top et Bottom).
-- `board.GTS` et `board.GBS` : Masques de soudure (Solder Mask / vernis épargne).
+## Utilisation de l'éditeur
 
-## Captures d'écran
+1. **Nouveau projet** Au lancement, définissez le nom du projet et la taille "utile" de votre carte (en nombre de trous). Un dossier de travail dédié (`.json`) est automatiquement créé pour vos sauvegardes.
 
-![Éditeur Perf2Gerber](lien_vers_image_de_votre_interface.png)
+2. **Dessin et Routage (Wire Tool)** Sélectionnez votre couche (Top ou Bottom) et utilisez l'outil Wire pour tracer vos pistes.
+   - *Tracé simple :* Cliquez sur une pastille de départ, puis sur une pastille d'arrivée pour terminer le segment.
+   - *Tracé en continu :* Maintenez enfoncée la touche de raccourci de l'outil Wire pour tracer une ligne ininterrompue qui suit vos clics. Relâchez la touche pour couper la piste.
 
-![Rendu Gerber Viewer](lien_vers_image_du_rendu_NextPCB.png)
+3. **Gomme de précision (Erase Tool)** L'outil gomme permet une édition non destructive. Cliquez sur une pastille active pour la désactiver, ou cliquez précisément sur un segment de cuivre pour le supprimer sans effacer toute la piste.
 
-## Installation et exécution
+4. **Sérigraphie (Text Tool & Pointer)** Sélectionnez l'outil Texte et cliquez sur la grille pour ajouter des annotations. Vous pouvez définir la taille exacte (en mm) et l'angle de rotation. Basculez ensuite sur l'outil Pointeur pour attraper vos textes et les glisser-déposer librement sur la carte.
 
-Ce projet est développé en Java avec JavaFX pour l'interface graphique.
-
-### Prérequis
-
-- Java Development Kit (JDK) 11 ou supérieur
-- JavaFX SDK (si non inclus dans votre JDK)
-
-### Comment lancer l'application
-
-1. Clonez ce dépôt :
-
-```bash
-git clone https://github.com/votre-nom-utilisateur/Perf2Gerber.git
-```
-
-2. Ouvrez le projet dans votre IDE favori (IntelliJ IDEA, Eclipse, VS Code).
-3. Assurez-vous que les bibliothèques JavaFX sont bien configurées dans votre environnement.
-4. Lancez la classe principale `App.java`.
-
-## Utilisation
-
-1. **Nouveau projet**  
-   Au lancement, définissez la taille "utile" de votre carte (en nombre de trous).
-
-2. **Dessin**  
-   Sélectionnez votre couche (Top/Bottom) et cliquez sur les pastilles pour tirer vos pistes. Le logiciel liera automatiquement vos traits.
-
-3. **Ligne droite**  
-   Maintenez la touche `Command` (ou `Ctrl`) pour dessiner en mode continu.
-
-4. **Effacement**  
-   Sélectionnez l'outil gomme. Cliquez sur une pastille dorée pour la désactiver, ou sur une ligne de cuivre pour la couper.
-
-5. **Exportation**  
-   Allez dans `File > Export to Gerber...`, choisissez l'emplacement de sauvegarde, et envoyez le fichier `.zip` généré à votre fabricant de PCB.
-
-## Licence
-
-(Ajoutez ici le type de licence que vous souhaitez utiliser, par exemple MIT, GPL, etc.)
+5. **Exportation** Allez dans `File > Export to Gerber...`. L'archive prête pour la production industrielle est générée immédiatement dans le dossier racine de votre projet.

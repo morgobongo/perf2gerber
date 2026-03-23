@@ -1,5 +1,7 @@
 package com.perf2gerber.ui;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.perf2gerber.model.Board;
 import com.perf2gerber.model.Pad;
 import com.perf2gerber.model.Trace;
@@ -11,10 +13,11 @@ import javafx.scene.shape.StrokeLineJoin;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Stack;
 
 public class EditorCanvas extends Canvas {
 
-    public enum Tool { DRAW, ERASE }
+    public enum Tool { POINTER, PADS, WIRE, ERASE, TEXT }
 
     private Board board;
     private double zoomLevel = 15.0;
@@ -24,7 +27,7 @@ public class EditorCanvas extends Canvas {
     private Trace.Layer activeLayer = Trace.Layer.BOTTOM;
     private double currentTraceWidth = 1.0;
 
-    private Tool currentTool = Tool.DRAW;
+    private Tool currentTool = Tool.POINTER;
     private boolean isCommandPressed = false;
     private boolean isViewFlipped = false;
 
@@ -32,15 +35,74 @@ public class EditorCanvas extends Canvas {
     private Integer hoverGridY = null;
 
     private java.util.function.BiConsumer<Integer, Integer> onCursorMoved;
+    private java.util.function.Consumer<Board> onBoardReplaced;
+
+    // Undo / Redo stacks
+    private Stack<String> undoStack = new Stack<>();
+    private Stack<String> redoStack = new Stack<>();
+    private Gson gson = new GsonBuilder().create();
+    
+    private boolean isUndoingOrRedoing = false;
+
+    // Variable pour mémoriser le texte qu'on est en train de déplacer avec le pointeur
+    private com.perf2gerber.model.TextLabel draggedTextLabel = null;
 
     public EditorCanvas(Board board) {
         this.board = board;
         updateSize();
         setupMouseListeners();
+        saveState(); // Initial state
+    }
+
+    public void saveState() {
+        if (board != null && !isUndoingOrRedoing) {
+            String newState = gson.toJson(board);
+            // Don't save duplicate states
+            if (undoStack.isEmpty() || !undoStack.peek().equals(newState)) {
+                undoStack.push(newState);
+                redoStack.clear(); // Clear redo stack on new action
+            }
+        }
+    }
+
+    public void undo() {
+        if (undoStack.size() > 1) { // Keep initial state
+            isUndoingOrRedoing = true;
+            String currentState = undoStack.pop();
+            redoStack.push(currentState); // Move current state to redo
+            
+            String previousState = undoStack.peek(); // Get previous state
+            this.board = gson.fromJson(previousState, Board.class);
+            if (onBoardReplaced != null) onBoardReplaced.accept(this.board);
+            updateSize();
+            draw();
+            isUndoingOrRedoing = false;
+        }
+    }
+
+    public void redo() {
+        if (!redoStack.isEmpty()) {
+            isUndoingOrRedoing = true;
+            String nextState = redoStack.pop();
+            undoStack.push(nextState);
+            this.board = gson.fromJson(nextState, Board.class);
+            if (onBoardReplaced != null) onBoardReplaced.accept(this.board);
+            updateSize();
+            draw();
+            isUndoingOrRedoing = false;
+        }
     }
 
     public void setOnCursorMoved(java.util.function.BiConsumer<Integer, Integer> listener) {
         this.onCursorMoved = listener;
+    }
+
+    public void setOnBoardReplaced(java.util.function.Consumer<Board> listener) {
+        this.onBoardReplaced = listener;
+    }
+
+    public Board getBoard() {
+        return this.board;
     }
 
     public void updateSize() {
@@ -53,17 +115,18 @@ public class EditorCanvas extends Canvas {
 
     public void setTool(Tool tool) {
         this.currentTool = tool;
-        this.currentTrace = null;
+        endCurrentTrace();
         draw();
     }
 
     public void setCommandPressed(boolean pressed) {
         this.isCommandPressed = pressed;
+        draw();
     }
 
     public void setActiveLayer(Trace.Layer layer) {
         this.activeLayer = layer;
-        this.currentTrace = null;
+        endCurrentTrace();
         draw();
     }
 
@@ -87,6 +150,16 @@ public class EditorCanvas extends Canvas {
 
     private double getScreenY(int gridY) {
         return padding + physicalToScreen((board.getRows() - 1 - gridY) * board.getGridSpacing());
+    }
+    private double getScreenXFromPhys(double physX) {
+        double maxPhysX = (board.getColumns() - 1) * board.getGridSpacing();
+        double renderX = isViewFlipped ? (maxPhysX - physX) : physX;
+        return padding + physicalToScreen(renderX);
+    }
+
+    private double getScreenYFromPhys(double physY) {
+        double maxPhysY = (board.getRows() - 1) * board.getGridSpacing();
+        return padding + physicalToScreen(maxPhysY - physY);
     }
 
     private void updateHoverPosition(double mouseX, double mouseY) {
@@ -121,7 +194,25 @@ public class EditorCanvas extends Canvas {
 
         this.setOnMouseDragged(event -> {
             updateHoverPosition(event.getX(), event.getY());
+
+            // Si on est en train de glisser un texte avec le Pointeur
+            if (currentTool == Tool.POINTER && draggedTextLabel != null) {
+                double newPhysX = (event.getX() - padding) / zoomLevel;
+                if (isViewFlipped) newPhysX = (board.getColumns() - 1) * board.getGridSpacing() - newPhysX;
+                double newPhysY = ((board.getRows() - 1) * board.getGridSpacing()) - ((event.getY() - padding) / zoomLevel);
+
+                draggedTextLabel.setX(newPhysX);
+                draggedTextLabel.setY(newPhysY);
+            }
+
             draw();
+        });
+
+        this.setOnMouseReleased(event -> {
+            if (draggedTextLabel != null) {
+                draggedTextLabel = null; // On lâche le texte
+                saveState(); // On sauvegarde l'état pour que "Undo" fonctionne !
+            }
         });
 
         this.setOnMouseExited(event -> {
@@ -131,19 +222,102 @@ public class EditorCanvas extends Canvas {
         });
 
         this.setOnMousePressed(event -> {
-            // --- LOGIQUE D'EFFACEMENT SÉLECTIVE ---
+            // --- 1. LOGIQUE DU POINTEUR (Attraper un texte) ---
+            if (currentTool == Tool.POINTER) {
+                double physXClick = (event.getX() - padding) / zoomLevel;
+                if (isViewFlipped) physXClick = (board.getColumns() - 1) * board.getGridSpacing() - physXClick;
+                double physYClick = ((board.getRows() - 1) * board.getGridSpacing()) - ((event.getY() - padding) / zoomLevel);
+
+                // Cherche si on a cliqué sur un texte de la couche active
+                if (board.getTextLabels() != null) {
+                    for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
+                        if (label.getLayer() == activeLayer) {
+                            // Hitbox un peu plus large (3.0mm) pour faciliter la sélection
+                            if (Math.abs(label.getX() - physXClick) < 3.0 && Math.abs(label.getY() - physYClick) < 3.0) {
+                                draggedTextLabel = label;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return; // En mode pointeur, on ne fait rien d'autre au clic
+            }
+
+            // --- 2. LOGIQUE DE L'OUTIL TEXTE (Ajout avec taille et rotation) ---
+            if (currentTool == Tool.TEXT) {
+                if (hoverGridX != null && hoverGridY != null) {
+                    javafx.scene.control.Dialog<com.perf2gerber.model.TextLabel> dialog = new javafx.scene.control.Dialog<>();
+                    dialog.setTitle("Ajouter un texte");
+                    dialog.getDialogPane().getButtonTypes().addAll(javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+
+                    javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
+                    grid.setHgap(10); grid.setVgap(10);
+
+                    javafx.scene.control.TextField textF = new javafx.scene.control.TextField("Texte");
+                    javafx.scene.control.TextField sizeF = new javafx.scene.control.TextField("2.0");
+                    javafx.scene.control.TextField rotF = new javafx.scene.control.TextField("0");
+
+                    grid.add(new javafx.scene.control.Label("Texte:"), 0, 0); grid.add(textF, 1, 0);
+                    grid.add(new javafx.scene.control.Label("Taille (mm):"), 0, 1); grid.add(sizeF, 1, 1);
+                    grid.add(new javafx.scene.control.Label("Rotation (°):"), 0, 2); grid.add(rotF, 1, 2);
+                    dialog.getDialogPane().setContent(grid);
+                    javafx.application.Platform.runLater(textF::requestFocus);
+
+                    dialog.setResultConverter(btn -> {
+                        if (btn == javafx.scene.control.ButtonType.OK) {
+                            try {
+                                double physX = hoverGridX * board.getGridSpacing();
+                                double physY = hoverGridY * board.getGridSpacing();
+                                return new com.perf2gerber.model.TextLabel(textF.getText(), activeLayer, physX, physY,
+                                        Double.parseDouble(sizeF.getText()), Double.parseDouble(rotF.getText()));
+                            } catch(Exception e) { return null; }
+                        }
+                        return null;
+                    });
+
+                    dialog.showAndWait().ifPresent(label -> {
+                        board.addTextLabel(label);
+                        saveState();
+                        draw();
+                    });
+                }
+                return;
+            }
+
+            // --- 3. LOGIQUE D'EFFACEMENT SÉLECTIVE ---
             if (currentTool == Tool.ERASE) {
-                // Est-on sur un pad actif ?
+                double physXClick = (event.getX() - padding) / zoomLevel;
+                if (isViewFlipped) physXClick = (board.getColumns() - 1) * board.getGridSpacing() - physXClick;
+                double physYClick = ((board.getRows() - 1) * board.getGridSpacing()) - ((event.getY() - padding) / zoomLevel);
+
+                com.perf2gerber.model.TextLabel textToRemove = null;
+                if (board.getTextLabels() != null) {
+                    for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
+                        if (label.getLayer() == activeLayer) {
+                            if (Math.abs(label.getX() - physXClick) < 2.0 && Math.abs(label.getY() - physYClick) < 2.0) {
+                                textToRemove = label;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (textToRemove != null) {
+                    board.getTextLabels().remove(textToRemove);
+                    saveState();
+                    draw();
+                    return;
+                }
+
                 boolean onActivePad = false;
                 if (hoverGridX != null && hoverGridY != null) {
                     Pad p = board.getPad(hoverGridX, hoverGridY);
                     if (p != null && p.isUsed()) {
                         onActivePad = true;
-                        p.deactivate(); // On delete le pad
+                        p.deactivate();
+                        saveState();
                     }
                 }
 
-                // Si on n'était pas sur un pad actif, on cherche à effacer la trace
                 if (!onActivePad) {
                     eraseSegmentAt(event.getX(), event.getY());
                 }
@@ -151,18 +325,36 @@ public class EditorCanvas extends Canvas {
                 return;
             }
 
-            // --- DESSIN ---
+            // --- 4. DESSIN (Pads & Traces) ---
             if (hoverGridX == null || hoverGridY == null) return;
             Pad clickedPad = board.getPad(hoverGridX, hoverGridY);
             if (clickedPad != null) {
-                clickedPad.activate();
-                if (currentTrace == null) {
-                    currentTrace = new Trace(activeLayer, currentTraceWidth);
-                    currentTrace.addPoint(hoverGridX, hoverGridY);
-                    board.addTrace(currentTrace);
-                } else {
-                    currentTrace.addPoint(hoverGridX, hoverGridY);
-                    if (!isCommandPressed) endCurrentTrace();
+                boolean isWiring = (currentTool == Tool.WIRE) || (currentTool == Tool.PADS && isCommandPressed);
+
+                if (currentTool == Tool.PADS && !isCommandPressed) {
+                    if (!clickedPad.isUsed()) {
+                        clickedPad.activate();
+                        saveState();
+                    }
+                }
+
+                if (isWiring) {
+                    if (currentTrace == null) {
+                        currentTrace = new Trace(activeLayer, currentTraceWidth);
+                        currentTrace.addPoint(hoverGridX, hoverGridY);
+                        board.addTrace(currentTrace);
+                    } else {
+                        currentTrace.addPoint(hoverGridX, hoverGridY);
+
+                        // LA MODIFICATION EST ICI :
+                        // Si on N'EST PAS en mode continu (bouton cliqué au lieu du clavier),
+                        // on termine la trace dès le 2ème clic !
+                        if (!isCommandPressed) {
+                            endCurrentTrace();
+                        }
+                    }
+                } else if (currentTrace != null) {
+                    endCurrentTrace();
                 }
                 draw();
             }
@@ -178,7 +370,12 @@ public class EditorCanvas extends Canvas {
         int splitIndex = -1;
         double threshold = 1.2;
 
+        Trace.Layer deletableLayer = activeLayer;
+
         for (Trace trace : board.getTraces()) {
+            if (trace.getLayer() != deletableLayer) {
+                continue;
+            }
             List<Trace.GridPoint> pts = trace.getSegments();
             for (int i = 0; i < pts.size() - 1; i++) {
                 double x1 = pts.get(i).x() * board.getGridSpacing();
@@ -209,6 +406,7 @@ public class EditorCanvas extends Canvas {
                 for (Trace.GridPoint p : partB) nB.addPoint(p.x(), p.y());
                 board.addTrace(nB);
             }
+            saveState();
         }
     }
 
@@ -223,7 +421,11 @@ public class EditorCanvas extends Canvas {
 
     public void endCurrentTrace() {
         if (currentTrace != null) {
-            if (currentTrace.getSegments().size() < 2) board.removeTrace(currentTrace);
+            if (currentTrace.getSegments().size() < 2) {
+                board.removeTrace(currentTrace);
+            } else {
+                saveState(); // Save state only if trace actually added points
+            }
             currentTrace = null;
             draw();
         }
@@ -236,9 +438,27 @@ public class EditorCanvas extends Canvas {
         gc.setLineCap(StrokeLineCap.ROUND);
         gc.setLineJoin(StrokeLineJoin.ROUND);
 
+        // 1. Zone de coupe
+        gc.setStroke(Color.web("#FFFFFF", 0.5));
+        gc.setLineWidth(1.0);
+        gc.setLineDashes(5.0);
+        gc.strokeRect(padding, padding, physicalToScreen((board.getColumns() - 1) * board.getGridSpacing()), physicalToScreen((board.getRows() - 1) * board.getGridSpacing()));
+        gc.setLineDashes((double[]) null);
+
+        // 2. Dessiner les Pads EN PREMIER (100% Opaques, aucun filtre alpha)
+        for (int x = 0; x < board.getColumns(); x++) {
+            for (int y = 0; y < board.getRows(); y++) {
+                if (x == 0 || x == board.getColumns() - 1 || y == 0 || y == board.getRows() - 1) continue;
+                Pad pad = board.getPad(x, y);
+                if (pad != null) drawPad(gc, pad);
+            }
+        }
+
+        // 3. Dessiner les Traces PAR-DESSUS les pads avec de la transparence
         for (Trace trace : board.getTraces()) {
             boolean isActiveLayer = (trace.getLayer() == activeLayer);
-            double opacity = isActiveLayer ? 1.0 : 0.2;
+            // L'astuce est ici : 75% d'opacité pour voir les pads à travers la trace !
+            double opacity = isActiveLayer ? 0.65 : 0.30;
             gc.setStroke(trace.getLayer() == Trace.Layer.TOP ? Color.web("#E74C3C", opacity) : Color.web("#3498DB", opacity));
             gc.setLineWidth(physicalToScreen(trace.getWidth()));
             List<Trace.GridPoint> segments = trace.getSegments();
@@ -253,7 +473,9 @@ public class EditorCanvas extends Canvas {
             }
         }
 
-        if (currentTool == Tool.DRAW && currentTrace != null && hoverGridX != null && hoverGridY != null) {
+        // 4. Trace en cours de dessin (Wire tool)
+        boolean isWiring = (currentTool == Tool.WIRE) || (currentTool == Tool.PADS && isCommandPressed);
+        if (isWiring && currentTrace != null && hoverGridX != null && hoverGridY != null) {
             List<Trace.GridPoint> segments = currentTrace.getSegments();
             if (!segments.isEmpty()) {
                 Trace.GridPoint lastPt = segments.get(segments.size() - 1);
@@ -261,35 +483,49 @@ public class EditorCanvas extends Canvas {
                 gc.setLineDashes(physicalToScreen(1.5), physicalToScreen(1.5));
                 gc.setStroke(activeLayer == Trace.Layer.TOP ? Color.web("#E74C3C", 0.6) : Color.web("#3498DB", 0.6));
                 gc.strokeLine(getScreenX(lastPt.x()), getScreenY(lastPt.y()), getScreenX(hoverGridX), getScreenY(hoverGridY));
-                gc.setLineDashes(null);
+                gc.setLineDashes((double[]) null);
             }
         }
 
-        // Zone de coupe
-        gc.setStroke(Color.web("#FFFFFF", 0.5));
-        gc.setLineWidth(1.0);
-        gc.setLineDashes(5.0);
-        gc.strokeRect(padding, padding, physicalToScreen((board.getColumns() - 1) * board.getGridSpacing()), physicalToScreen((board.getRows() - 1) * board.getGridSpacing()));
-        gc.setLineDashes(null);
+        // 5. Dessin des Textes TOUT AU-DESSUS de tout le reste
+        if (board.getTextLabels() != null) {
+            gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+            gc.setTextBaseline(javafx.geometry.VPos.CENTER);
 
-        for (int x = 0; x < board.getColumns(); x++) {
-            for (int y = 0; y < board.getRows(); y++) {
-                if (x == 0 || x == board.getColumns() - 1 || y == 0 || y == board.getRows() - 1) continue;
-                Pad pad = board.getPad(x, y);
-                if (pad != null) drawPad(gc, pad);
+            for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
+                boolean isActiveLayer = (label.getLayer() == activeLayer);
+                gc.setGlobalAlpha(isActiveLayer ? 1.0 : 0.2);
+                gc.setFill(Color.WHITE);
+
+                double sx = getScreenXFromPhys(label.getX());
+                double sy = getScreenYFromPhys(label.getY());
+
+                // On applique la taille dynamique
+                gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(label.getFontSize())));
+
+                gc.save(); // On sauvegarde l'état du pinceau
+                gc.translate(sx, sy); // On se déplace au centre du texte
+
+                // Effet Miroir ultra pro pour le Bottom Layer !
+                if (label.getLayer() == Trace.Layer.BOTTOM && !isViewFlipped) {
+                    gc.scale(-1, 1);
+                } else if (label.getLayer() == Trace.Layer.TOP && isViewFlipped) {
+                    gc.scale(-1, 1);
+                }
+
+                gc.rotate(label.getRotation()); // On tourne
+                gc.fillText(label.getText(), 0, 0); // On dessine
+                gc.restore(); // On remet le pinceau normal
             }
+            gc.setGlobalAlpha(1.0);
         }
 
-        // --- HOVER RING INTELLIGENT ---
+        // 6. HOVER RING INTELLIGENT
         if (hoverGridX != null && hoverGridY != null) {
             Pad p = board.getPad(hoverGridX, hoverGridY);
             if (p != null) {
                 boolean showRing = true;
-
-                // Si on est en mode gomme, on ne montre le rond rouge QUE si le pad est actif
-                if (currentTool == Tool.ERASE && !p.isUsed()) {
-                    showRing = false;
-                }
+                if (currentTool == Tool.ERASE && !p.isUsed()) showRing = false;
 
                 if (showRing) {
                     double sx = getScreenX(hoverGridX);
@@ -318,5 +554,8 @@ public class EditorCanvas extends Canvas {
         this.board = newBoard;
         updateSize();
         draw();
+        undoStack.clear();
+        redoStack.clear();
+        saveState(); // Save initial loaded state
     }
 }
