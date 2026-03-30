@@ -15,6 +15,7 @@ public class Board {
 
     private Pad[][] grid;
     private final List<Trace> traces;
+    private final List<Component> components;
 
     public Board(int columns, int rows, double gridSpacing, double copperDiameter, double holeDiameter) {
         this.columns = columns;
@@ -23,6 +24,7 @@ public class Board {
         this.defaultCopperDiameter = copperDiameter;
         this.defaultHoleDiameter = holeDiameter;
         this.traces = new ArrayList<>();
+        this.components = new ArrayList<>();
 
         initializeGrid();
     }
@@ -37,8 +39,10 @@ public class Board {
     }
 
     /**
-     * Resizes the board dynamically by adding or removing columns/rows from specific sides.
-     * It handles the shifting of all existing pads and traces so the design doesn't break.
+     * Resizes the board dynamically by adding or removing columns/rows from
+     * specific sides.
+     * It handles the shifting of all existing pads and traces so the design doesn't
+     * break.
      *
      * @param addLeft   Number of columns to add to the Left (negative to remove).
      * @param addRight  Number of columns to add to the Right.
@@ -50,7 +54,8 @@ public class Board {
         int newRows = this.rows + addBottom + addTop;
 
         // Prevent shrinking below a minimum size (e.g., 3x3)
-        if (newColumns < 3 || newRows < 3) return;
+        if (newColumns < 3 || newRows < 3)
+            return;
 
         Pad[][] newGrid = new Pad[newColumns][newRows];
 
@@ -97,6 +102,7 @@ public class Board {
     /**
      * Modifie le diamètre de cuivre de TOUTES les pastilles (Pads) du circuit.
      * Utile pour agrandir la surface de soudure globale.
+     * 
      * @param newCopperDiameterMm Le nouveau diamètre en millimètres (ex: 2.5)
      */
     public void setGlobalPadCopperDiameter(double newCopperDiameterMm) {
@@ -113,7 +119,8 @@ public class Board {
     }
 
     public void addTrace(Trace trace) {
-        if (trace != null) this.traces.add(trace);
+        if (trace != null)
+            this.traces.add(trace);
     }
 
     public void removeTrace(Trace trace) {
@@ -142,21 +149,37 @@ public class Board {
 
     public List<Trace> getTraces() {
 
-
         return Collections.unmodifiableList(traces);
     }
 
-        public java.util.List<TextLabel> getTextLabels() {
-            // Sécurité au cas où un ancien fichier GSON n'aurait pas cette liste
-            if (textLabels == null) {
-                textLabels = new java.util.ArrayList<>();
-            }
-            return textLabels;
+    public java.util.List<TextLabel> getTextLabels() {
+        // Sécurité au cas où un ancien fichier GSON n'aurait pas cette liste
+        if (textLabels == null) {
+            textLabels = new java.util.ArrayList<>();
         }
+        return textLabels;
+    }
 
-        public void addTextLabel(TextLabel label) {
-            getTextLabels().add(label);
+    public void addTextLabel(TextLabel label) {
+        getTextLabels().add(label);
+    }
 
+    public List<Component> getComponents() {
+        if (components == null) {
+            return Collections.emptyList(); // Safety against older JSON saves
+        }
+        return Collections.unmodifiableList(components);
+    }
 
+    public void addComponent(Component c) {
+        if (c != null && components != null) {
+            this.components.add(c);
+        }
+    }
+
+    public void removeComponent(Component c) {
+        if (c != null && components != null) {
+            this.components.remove(c);
+        }
     }
 }

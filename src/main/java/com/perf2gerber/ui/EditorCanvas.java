@@ -3,6 +3,10 @@ package com.perf2gerber.ui;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.perf2gerber.model.Board;
+import com.perf2gerber.model.Component;
+import com.perf2gerber.model.ComponentAdapter;
+import com.perf2gerber.model.FixedComponent;
+import com.perf2gerber.model.StretchComponent;
 import com.perf2gerber.model.Pad;
 import com.perf2gerber.model.Trace;
 import javafx.scene.canvas.Canvas;
@@ -47,7 +51,9 @@ public class EditorCanvas extends Canvas {
     // Undo / Redo stacks
     private Stack<String> undoStack = new Stack<>();
     private Stack<String> redoStack = new Stack<>();
-    private Gson gson = new GsonBuilder().create();
+    private Gson gson = new GsonBuilder()
+            .registerTypeAdapter(Component.class, new ComponentAdapter())
+            .create();
 
     private boolean isUndoingOrRedoing = false;
 
@@ -551,6 +557,13 @@ public class EditorCanvas extends Canvas {
             }
         }
 
+        // 4.5 Dessin des Composants par-dessus les traces
+        if (board.getComponents() != null) {
+            for (Component c : board.getComponents()) {
+                drawComponent(gc, c);
+            }
+        }
+
         // 5. Dessin des Textes TOUT AU-DESSUS de tout le reste
         if (board.getTextLabels() != null) {
             gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
@@ -615,6 +628,87 @@ public class EditorCanvas extends Canvas {
         gc.fillOval(screenX - copperRadiusPx, screenY - copperRadiusPx, copperRadiusPx * 2, copperRadiusPx * 2);
         gc.setFill(pad.isUsed() ? Color.web("#000000") : Color.web("#222222"));
         gc.fillOval(screenX - holeRadiusPx, screenY - holeRadiusPx, holeRadiusPx * 2, holeRadiusPx * 2);
+    }
+
+    private void drawComponent(GraphicsContext gc, Component c) {
+        if (c instanceof FixedComponent) {
+            FixedComponent fc = (FixedComponent) c;
+            double sy = getScreenY(fc.getStartY());
+
+            // 3 cells wide = 3 * gridSpacing
+            double rectW = physicalToScreen(board.getGridSpacing() * 3);
+            double rectH = physicalToScreen(board.getGridSpacing() * 1.5);
+            double centerX = getScreenX(fc.getStartX() + 1); // Center is on the middle pad (Pad 2)
+            double centerY = sy;
+
+            gc.setFill(Color.web("#333333", 0.8));
+            gc.setStroke(Color.WHITE);
+            gc.setLineWidth(1.0);
+            gc.fillRect(centerX - rectW / 2, centerY - rectH / 2, rectW, rectH);
+            gc.strokeRect(centerX - rectW / 2, centerY - rectH / 2, rectW, rectH);
+
+            gc.setFill(Color.WHITE);
+            gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+            gc.setTextBaseline(javafx.geometry.VPos.CENTER);
+            gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
+
+            if (fc.isShowValue() && fc.getValue() != null) {
+                gc.fillText(fc.getValue(), centerX, centerY);
+            } else if (fc.isShowName() && fc.getName() != null) {
+                gc.fillText(fc.getName(), centerX, centerY);
+            }
+
+            if (fc.getPinoutOrCount() != null) {
+                String pinout = fc.getPinoutOrCount();
+                for (int i = 0; i < pinout.length(); i++) {
+                    String letter = String.valueOf(pinout.charAt(i));
+                    double padX = getScreenX(fc.getStartX() + i);
+                    gc.fillText(letter, padX, sy);
+                }
+            }
+        } else if (c instanceof StretchComponent) {
+            StretchComponent sc = (StretchComponent) c;
+            double x1 = getScreenX(sc.getStartX());
+            double y1 = getScreenY(sc.getStartY());
+            double x2 = getScreenX(sc.getEndX());
+            double y2 = getScreenY(sc.getEndY());
+
+            double midX = (x1 + x2) / 2.0;
+            double midY = (y1 + y2) / 2.0;
+
+            gc.setStroke(Color.web("#CCCCCC"));
+            gc.setLineWidth(physicalToScreen(0.5));
+            gc.strokeLine(x1, y1, x2, y2); // Leads
+
+            double bodyW = physicalToScreen(board.getGridSpacing() * 1.5);
+            double bodyH = physicalToScreen(board.getGridSpacing() * 0.8);
+
+            gc.save();
+            gc.translate(midX, midY);
+            double angle = Math.toDegrees(Math.atan2(y2 - y1, x2 - x1));
+            gc.rotate(angle);
+
+            gc.setFill(Color.web("#8B4513", 0.9)); // Brown resistor body
+            gc.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+            gc.setStroke(Color.WHITE);
+            gc.setLineWidth(1.0);
+            gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+
+            gc.setFill(Color.WHITE);
+            gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+            gc.setTextBaseline(javafx.geometry.VPos.CENTER);
+            // On utilise une police légèrement plus petite pour que ça rentre bien dans une
+            // résistance !
+            gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.0)));
+
+            if (sc.isShowValue() && sc.getValue() != null) {
+                gc.fillText(sc.getValue(), 0, 0);
+            } else if (sc.isShowName() && sc.getName() != null) {
+                gc.fillText(sc.getName(), 0, 0);
+            }
+
+            gc.restore();
+        }
     }
 
     public void setBoard(Board newBoard) {

@@ -80,15 +80,19 @@ public class App extends Application {
         resizeWrapper.setStyle("-fx-background-color: #1E1E1E;");
 
         // Resize buttons
-        resizeWrapper.setTop(new StackPane(new HBox(5, createResizeBtn("+", 0, 0, 0, 1), createResizeBtn("-", 0, 0, 0, -1))));
-        resizeWrapper.setBottom(new StackPane(new HBox(5, createResizeBtn("+", 0, 0, 1, 0), createResizeBtn("-", 0, 0, -1, 0))));
-        resizeWrapper.setLeft(new StackPane(new VBox(5, createResizeBtn("+", 1, 0, 0, 0), createResizeBtn("-", -1, 0, 0, 0))));
-        resizeWrapper.setRight(new StackPane(new VBox(5, createResizeBtn("+", 0, 1, 0, 0), createResizeBtn("-", 0, -1, 0, 0))));
+        resizeWrapper.setTop(
+                new StackPane(new HBox(5, createResizeBtn("+", 0, 0, 0, 1), createResizeBtn("-", 0, 0, 0, -1))));
+        resizeWrapper.setBottom(
+                new StackPane(new HBox(5, createResizeBtn("+", 0, 0, 1, 0), createResizeBtn("-", 0, 0, -1, 0))));
+        resizeWrapper.setLeft(
+                new StackPane(new VBox(5, createResizeBtn("+", 1, 0, 0, 0), createResizeBtn("-", -1, 0, 0, 0))));
+        resizeWrapper.setRight(
+                new StackPane(new VBox(5, createResizeBtn("+", 0, 1, 0, 0), createResizeBtn("-", 0, -1, 0, 0))));
 
-        ((HBox)((StackPane)resizeWrapper.getTop()).getChildren().get(0)).setAlignment(Pos.CENTER);
-        ((HBox)((StackPane)resizeWrapper.getBottom()).getChildren().get(0)).setAlignment(Pos.CENTER);
-        ((VBox)((StackPane)resizeWrapper.getLeft()).getChildren().get(0)).setAlignment(Pos.CENTER);
-        ((VBox)((StackPane)resizeWrapper.getRight()).getChildren().get(0)).setAlignment(Pos.CENTER);
+        ((HBox) ((StackPane) resizeWrapper.getTop()).getChildren().get(0)).setAlignment(Pos.CENTER);
+        ((HBox) ((StackPane) resizeWrapper.getBottom()).getChildren().get(0)).setAlignment(Pos.CENTER);
+        ((VBox) ((StackPane) resizeWrapper.getLeft()).getChildren().get(0)).setAlignment(Pos.CENTER);
+        ((VBox) ((StackPane) resizeWrapper.getRight()).getChildren().get(0)).setAlignment(Pos.CENTER);
 
         StackPane canvasContainer = new StackPane(canvas);
         canvasContainer.setStyle("-fx-background-color: #1E1E1E;");
@@ -106,8 +110,10 @@ public class App extends Application {
         root.setBottom(statusBar);
 
         canvas.setOnCursorMoved((x, y) -> {
-            if (x == null || y == null) lblCoords.setText("Pos: - , -");
-            else lblCoords.setText(String.format("Pos: X=%d , Y=%d", x, y));
+            if (x == null || y == null)
+                lblCoords.setText("Pos: - , -");
+            else
+                lblCoords.setText(String.format("Pos: X=%d , Y=%d", x, y));
         });
 
         updateStatusBar();
@@ -141,11 +147,16 @@ public class App extends Application {
 
             // Quel bouton correspond à la touche pressée ?
             ToggleButton targetButton = null;
-            if (code == shortcuts.get(EditorCanvas.Tool.POINTER)) targetButton = btnPointer;
-            else if (code == shortcuts.get(EditorCanvas.Tool.PADS)) targetButton = btnPads;
-            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE)) targetButton = btnWire;
-            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
-            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
+            if (code == shortcuts.get(EditorCanvas.Tool.POINTER))
+                targetButton = btnPointer;
+            else if (code == shortcuts.get(EditorCanvas.Tool.PADS))
+                targetButton = btnPads;
+            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE))
+                targetButton = btnWire;
+            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE))
+                targetButton = btnErase;
+            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT))
+                targetButton = btnText;
 
             if (targetButton != null) {
                 // NOUVEAU : Si on maintient le raccourci Wire, on active le mode "Continu" !
@@ -168,11 +179,16 @@ public class App extends Application {
 
             // On cherche quel bouton vient d'être relâché
             ToggleButton targetButton = null;
-            if (code == shortcuts.get(EditorCanvas.Tool.POINTER)) targetButton = btnPointer;
-            else if (code == shortcuts.get(EditorCanvas.Tool.PADS)) targetButton = btnPads;
-            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE)) targetButton = btnWire;
-            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE)) targetButton = btnErase;
-            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT)) targetButton = btnText;
+            if (code == shortcuts.get(EditorCanvas.Tool.POINTER))
+                targetButton = btnPointer;
+            else if (code == shortcuts.get(EditorCanvas.Tool.PADS))
+                targetButton = btnPads;
+            else if (code == shortcuts.get(EditorCanvas.Tool.WIRE))
+                targetButton = btnWire;
+            else if (code == shortcuts.get(EditorCanvas.Tool.ERASE))
+                targetButton = btnErase;
+            else if (code == shortcuts.get(EditorCanvas.Tool.TEXT))
+                targetButton = btnText;
 
             if (targetButton != null) {
                 // NOUVEAU : Si on relâche le raccourci Wire, on coupe le fil et le mode continu
@@ -181,7 +197,8 @@ public class App extends Application {
                     canvas.endCurrentTrace();
                 }
 
-                // Si on relâche la touche et qu'on était en mode "Ressort", on restaure l'ancien outil
+                // Si on relâche la touche et qu'on était en mode "Ressort", on restaure
+                // l'ancien outil
                 if (targetButton.isSelected() && previousToolButton != null) {
                     previousToolButton.setSelected(true); // Retour à la normale
                     previousToolButton = null; // On vide la mémoire
@@ -213,14 +230,15 @@ public class App extends Application {
         itemExport.setOnAction(e -> exportToGerber());
 
         menuFile.getItems().addAll(itemNew, itemOpen, itemSave, itemSaveAs, sep, itemExport);
-        
+
         Menu menuEdit = new Menu("Edit");
         MenuItem itemUndo = new MenuItem("Undo");
         itemUndo.setAccelerator(new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN));
         itemUndo.setOnAction(e -> canvas.undo());
-        
+
         MenuItem itemRedo = new MenuItem("Redo");
-        itemRedo.setAccelerator(new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
+        itemRedo.setAccelerator(
+                new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
         itemRedo.setOnAction(e -> canvas.redo());
 
         Menu menuView = new Menu("View");
@@ -235,9 +253,9 @@ public class App extends Application {
         itemShortcuts.setOnAction(e -> openShortcutsDialog());
         menuSettings.getItems().add(itemShortcuts);
         // ----------------------------------
-        
+
         menuEdit.getItems().addAll(itemUndo, itemRedo);
-        
+
         menuBar.getMenus().addAll(menuFile, menuEdit, menuView, menuSettings);
         return menuBar;
     }
@@ -309,16 +327,23 @@ public class App extends Application {
             }
 
             if (newVal != null) {
-                ((ToggleButton) newVal).setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
+                ((ToggleButton) newVal)
+                        .setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
 
                 // On met à jour l'outil du canvas en fonction du bouton qui vient de s'allumer
-                if (newVal == btnPointer) canvas.setTool(EditorCanvas.Tool.POINTER);
-                else if (newVal == btnPads) canvas.setTool(EditorCanvas.Tool.PADS);
-                else if (newVal == btnWire) canvas.setTool(EditorCanvas.Tool.WIRE);
-                else if (newVal == btnErase) canvas.setTool(EditorCanvas.Tool.ERASE);
-                else if (newVal == btnText) canvas.setTool(EditorCanvas.Tool.TEXT);
+                if (newVal == btnPointer)
+                    canvas.setTool(EditorCanvas.Tool.POINTER);
+                else if (newVal == btnPads)
+                    canvas.setTool(EditorCanvas.Tool.PADS);
+                else if (newVal == btnWire)
+                    canvas.setTool(EditorCanvas.Tool.WIRE);
+                else if (newVal == btnErase)
+                    canvas.setTool(EditorCanvas.Tool.ERASE);
+                else if (newVal == btnText)
+                    canvas.setTool(EditorCanvas.Tool.TEXT);
             } else {
-                // LA MAGIE EST ICI : Si aucun bouton n'est sélectionné (ex: on a cliqué sur le bouton actif)
+                // LA MAGIE EST ICI : Si aucun bouton n'est sélectionné (ex: on a cliqué sur le
+                // bouton actif)
                 // On force le retour au pointeur par défaut.
                 btnPointer.setSelected(true);
             }
@@ -342,8 +367,10 @@ public class App extends Application {
         layerBox.getItems().addAll("Bottom Layer (Blue)", "Top Layer (Red)");
         layerBox.setValue("Bottom Layer (Blue)");
         layerBox.setOnAction(e -> {
-            if (layerBox.getValue().contains("Top")) canvas.setActiveLayer(Trace.Layer.TOP);
-            else canvas.setActiveLayer(Trace.Layer.BOTTOM);
+            if (layerBox.getValue().contains("Top"))
+                canvas.setActiveLayer(Trace.Layer.TOP);
+            else
+                canvas.setActiveLayer(Trace.Layer.BOTTOM);
         });
 
         ComboBox<Double> widthBox = new ComboBox<>();
@@ -368,8 +395,7 @@ public class App extends Application {
                 viewBox,
                 lblLayer, layerBox,
                 lblWidth, widthBox,
-                lblPadSize, padBox
-        );
+                lblPadSize, padBox);
 
         return toolbar;
     }
@@ -406,10 +432,12 @@ public class App extends Application {
             if (dialogButton == createButtonType) {
                 try {
                     String projName = nameField.getText().trim();
-                    if (projName.isEmpty()) projName = "Untitled_Project";
-                    return new Object[]{projName, Integer.parseInt(colsField.getText()), Integer.parseInt(rowsField.getText())};
+                    if (projName.isEmpty())
+                        projName = "Untitled_Project";
+                    return new Object[] { projName, Integer.parseInt(colsField.getText()),
+                            Integer.parseInt(rowsField.getText()) };
                 } catch (NumberFormatException e) {
-                    return new Object[]{nameField.getText().trim(), 21, 11};
+                    return new Object[] { nameField.getText().trim(), 21, 11 };
                 }
             }
             return null;
@@ -420,13 +448,15 @@ public class App extends Application {
 
     // --- NOUVEAU : CRÉATION DU DOSSIER SPÉCIFIQUE AU PROJET ---
     private Board handleNewProjectSetup(Object[] setupData) {
-        if (setupData == null) return null;
+        if (setupData == null)
+            return null;
 
         String projName = (String) setupData[0];
         int cols = (Integer) setupData[1];
         int rows = (Integer) setupData[2];
 
-        // 1. On crée le sous-dossier (ex: Documents/Perf2Gerber_Projects/MyAwesomeProject/)
+        // 1. On crée le sous-dossier (ex:
+        // Documents/Perf2Gerber_Projects/MyAwesomeProject/)
         java.io.File projDir = new java.io.File(getDefaultDirectory(), projName);
         if (!projDir.exists()) {
             projDir.mkdirs();
@@ -435,7 +465,26 @@ public class App extends Application {
         // 2. On pré-configure le fichier de sauvegarde (MyAwesomeProject.json)
         this.currentFile = new java.io.File(projDir, projName + ".json");
 
-        return new Board(cols + 2, rows + 2, 2.54, 2.0, 1.0);
+        Board b = new Board(cols + 2, rows + 2, 2.54, 2.0, 1.0);
+
+        // --- PHASE 3 TEST INJECTION ---
+        com.perf2gerber.model.FixedComponent fc = new com.perf2gerber.model.FixedComponent();
+        fc.setName("Q1");
+        fc.setPinoutOrCount("CBE");
+        fc.setStartX(5);
+        fc.setStartY(5);
+        b.addComponent(fc);
+
+        com.perf2gerber.model.StretchComponent sc = new com.perf2gerber.model.StretchComponent();
+        sc.setName("R1");
+        sc.setValue("10k");
+        sc.setStartX(5);
+        sc.setStartY(8);
+        sc.setEndX(9);
+        sc.setEndY(8);
+        b.addComponent(sc);
+
+        return b;
     }
 
     private void startNewProject() {
@@ -561,7 +610,8 @@ public class App extends Application {
             fileChooser.setInitialFileName("Perf2Gerber_Project.zip");
         }
 
-        fileChooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("ZIP Archive (*.zip)", "*.zip"));
+        fileChooser.getExtensionFilters()
+                .add(new javafx.stage.FileChooser.ExtensionFilter("ZIP Archive (*.zip)", "*.zip"));
 
         java.io.File zipFile = fileChooser.showSaveDialog(null);
 
@@ -592,11 +642,12 @@ public class App extends Application {
                 com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.TOP, topSilkFile);
 
                 java.io.File bottomSilkFile = new java.io.File(tempDir.toFile(), "board.GBO");
-                com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.BOTTOM, bottomSilkFile);
+                com.perf2gerber.exporter.GerberExporter.exportSilkscreenLayer(board, Trace.Layer.BOTTOM,
+                        bottomSilkFile);
                 // ----------------------------------------------
 
                 try (java.io.FileOutputStream fos = new java.io.FileOutputStream(zipFile);
-                     java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(fos)) {
+                        java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(fos)) {
 
                     java.io.File[] filesToZip = tempDir.toFile().listFiles();
                     if (filesToZip != null) {
@@ -610,7 +661,8 @@ public class App extends Application {
 
                 java.io.File[] tempFiles = tempDir.toFile().listFiles();
                 if (tempFiles != null) {
-                    for (java.io.File f : tempFiles) f.delete();
+                    for (java.io.File f : tempFiles)
+                        f.delete();
                 }
                 tempDir.toFile().delete();
 
@@ -642,7 +694,8 @@ public class App extends Application {
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
         GridPane grid = new GridPane();
-        grid.setHgap(10); grid.setVgap(10);
+        grid.setHgap(10);
+        grid.setVgap(10);
         grid.setPadding(new Insets(20, 50, 10, 10));
 
         TextField txtPointer = createKeyCatcher(EditorCanvas.Tool.POINTER);
@@ -651,22 +704,32 @@ public class App extends Application {
         TextField txtErase = createKeyCatcher(EditorCanvas.Tool.ERASE);
         TextField txtText = createKeyCatcher(EditorCanvas.Tool.TEXT);
 
-        grid.add(new Label("Pointer Tool:"), 0, 0); grid.add(txtPointer, 1, 0);
-        grid.add(new Label("Pads Tool:"), 0, 1); grid.add(txtPads, 1, 1);
-        grid.add(new Label("Wire Tool:"), 0, 2); grid.add(txtWire, 1, 2);
-        grid.add(new Label("Erase Tool:"), 0, 3); grid.add(txtErase, 1, 3);
-        grid.add(new Label("Text Tool:"), 0, 4); grid.add(txtText, 1, 4);
+        grid.add(new Label("Pointer Tool:"), 0, 0);
+        grid.add(txtPointer, 1, 0);
+        grid.add(new Label("Pads Tool:"), 0, 1);
+        grid.add(txtPads, 1, 1);
+        grid.add(new Label("Wire Tool:"), 0, 2);
+        grid.add(txtWire, 1, 2);
+        grid.add(new Label("Erase Tool:"), 0, 3);
+        grid.add(txtErase, 1, 3);
+        grid.add(new Label("Text Tool:"), 0, 4);
+        grid.add(txtText, 1, 4);
 
         dialog.getDialogPane().setContent(grid);
 
         Optional<ButtonType> result = dialog.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
             // On utilise une petite fonction pour mettre à jour ET sauvegarder
-            if (txtPointer.getUserData() != null) updateShortcut(EditorCanvas.Tool.POINTER, (KeyCode) txtPointer.getUserData());
-            if (txtPads.getUserData() != null) updateShortcut(EditorCanvas.Tool.PADS, (KeyCode) txtPads.getUserData());
-            if (txtWire.getUserData() != null) updateShortcut(EditorCanvas.Tool.WIRE, (KeyCode) txtWire.getUserData());
-            if (txtErase.getUserData() != null) updateShortcut(EditorCanvas.Tool.ERASE, (KeyCode) txtErase.getUserData());
-            if (txtText.getUserData() != null) updateShortcut(EditorCanvas.Tool.TEXT, (KeyCode) txtText.getUserData());
+            if (txtPointer.getUserData() != null)
+                updateShortcut(EditorCanvas.Tool.POINTER, (KeyCode) txtPointer.getUserData());
+            if (txtPads.getUserData() != null)
+                updateShortcut(EditorCanvas.Tool.PADS, (KeyCode) txtPads.getUserData());
+            if (txtWire.getUserData() != null)
+                updateShortcut(EditorCanvas.Tool.WIRE, (KeyCode) txtWire.getUserData());
+            if (txtErase.getUserData() != null)
+                updateShortcut(EditorCanvas.Tool.ERASE, (KeyCode) txtErase.getUserData());
+            if (txtText.getUserData() != null)
+                updateShortcut(EditorCanvas.Tool.TEXT, (KeyCode) txtText.getUserData());
         }
     }
 
@@ -687,7 +750,8 @@ public class App extends Application {
 
         field.setOnKeyPressed(e -> {
             KeyCode code = e.getCode();
-            if (code == KeyCode.UNDEFINED) return;
+            if (code == KeyCode.UNDEFINED)
+                return;
 
             field.setText(code.getName()); // Va écrire "Command", "Shift", "V", etc.
             field.setStyle("");
