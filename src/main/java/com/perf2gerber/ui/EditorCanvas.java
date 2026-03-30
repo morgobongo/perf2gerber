@@ -22,7 +22,7 @@ import java.util.Stack;
 public class EditorCanvas extends Canvas {
 
     public enum Tool {
-        POINTER, PADS, WIRE, ERASE, TEXT
+        POINTER, PADS, WIRE, ERASE, TEXT, PLACE_PART
     }
 
     private Board board;
@@ -39,6 +39,12 @@ public class EditorCanvas extends Canvas {
     private double currentTraceWidth = 1.0;
 
     private Tool currentTool = Tool.POINTER;
+    private Component pendingPart;
+    private boolean isPlacingSecondPoint = false;
+    private StretchComponent activeStretchPart = null;
+    private Component draggedPart = null;
+    private Integer dragStartGridX = null;
+    private Integer dragStartGridY = null;
     private boolean isCommandPressed = false;
     private boolean isViewFlipped = false;
 
@@ -131,8 +137,18 @@ public class EditorCanvas extends Canvas {
 
     public void setTool(Tool tool) {
         this.currentTool = tool;
+        if (tool != Tool.PLACE_PART) {
+            this.pendingPart = null; // Clear if we switch to a different operational tool
+            this.isPlacingSecondPoint = false;
+            this.activeStretchPart = null;
+        }
         endCurrentTrace();
         draw();
+    }
+
+    public void setPendingPart(Component pendingPart) {
+        this.pendingPart = pendingPart;
+        setTool(Tool.PLACE_PART);
     }
 
     public void setCommandPressed(boolean pressed) {
@@ -220,7 +236,34 @@ public class EditorCanvas extends Canvas {
         });
 
         this.setOnMouseMoved(event -> {
-            updateHoverPosition(convertToWorldX(event.getX()), convertToWorldY(event.getY()));
+            double worldX = convertToWorldX(event.getX());
+            double worldY = convertToWorldY(event.getY());
+            updateHoverPosition(worldX, worldY);
+            
+            if ((currentTool == Tool.POINTER || currentTool == Tool.ERASE) && board.getComponents() != null) {
+                double rawGridX = (worldX - padding) / physicalToScreen(board.getGridSpacing());
+                double rawGridYScreen = (worldY - padding) / physicalToScreen(board.getGridSpacing());
+                double continuousGridX = isViewFlipped ? (board.getColumns() - 1) - rawGridX : rawGridX;
+                double continuousGridY = (board.getRows() - 1) - rawGridYScreen;
+                
+                boolean foundHover = false;
+                for (int i = board.getComponents().size() - 1; i >= 0; i--) {
+                    Component c = board.getComponents().get(i);
+                    if (!foundHover && c.contains(continuousGridX, continuousGridY)) {
+                        c.setHovered(true);
+                        foundHover = true;
+                    } else {
+                        c.setHovered(false);
+                    }
+                }
+            }
+            
+            if (isPlacingSecondPoint && activeStretchPart != null && hoverGridX != null && hoverGridY != null) {
+                activeStretchPart.setEndX(hoverGridX);
+                activeStretchPart.setEndY(hoverGridY);
+            }
+            
+            // Unconditionally draw on mouse move to restore Phantom Wire rendering! 
             draw();
         });
 
@@ -228,6 +271,28 @@ public class EditorCanvas extends Canvas {
             double worldX = convertToWorldX(event.getX());
             double worldY = convertToWorldY(event.getY());
             updateHoverPosition(worldX, worldY);
+
+            // Drag Components
+            if (currentTool == Tool.POINTER && draggedPart != null) {
+                if (hoverGridX != null && hoverGridY != null && dragStartGridX != null && dragStartGridY != null) {
+                    int deltaX = hoverGridX - dragStartGridX;
+                    int deltaY = hoverGridY - dragStartGridY;
+                    
+                    if (deltaX != 0 || deltaY != 0) {
+                        draggedPart.setStartX(draggedPart.getStartX() + deltaX);
+                        draggedPart.setStartY(draggedPart.getStartY() + deltaY);
+                        if (draggedPart instanceof StretchComponent) {
+                            StretchComponent sc = (StretchComponent) draggedPart;
+                            sc.setEndX(sc.getEndX() + deltaX);
+                            sc.setEndY(sc.getEndY() + deltaY);
+                        }
+                        dragStartGridX = hoverGridX;
+                        dragStartGridY = hoverGridY;
+                    }
+                }
+                draw();
+                return;
+            }
 
             // Si on est en train de glisser un texte avec le Pointeur
             if (currentTool == Tool.POINTER && draggedTextLabel != null) {
@@ -244,6 +309,10 @@ public class EditorCanvas extends Canvas {
         });
 
         this.setOnMouseReleased(event -> {
+            if (draggedPart != null) {
+                draggedPart = null;
+                saveState();
+            }
             if (draggedTextLabel != null) {
                 draggedTextLabel = null; // On lâche le texte
                 saveState(); // On sauvegarde l'état pour que "Undo" fonctionne !
@@ -261,6 +330,102 @@ public class EditorCanvas extends Canvas {
         this.setOnMousePressed(event -> {
             double worldX = convertToWorldX(event.getX());
             double worldY = convertToWorldY(event.getY());
+
+            // --- 6. DRAG & DROP & CONTEXT MENU POUR COMPOSANTS & TRACES & PADS ---
+            if (currentTool == Tool.POINTER) {
+                Component clickedPart = null;
+                if (board.getComponents() != null) {
+                    for (Component c : board.getComponents()) {
+                        if (c.isHovered()) {
+                            clickedPart = c;
+                            break;
+                        }
+                    }
+                }
+                
+                if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                    javafx.scene.control.ContextMenu contextMenu = new javafx.scene.control.ContextMenu();
+                    
+                    if (clickedPart != null) {
+                        javafx.scene.control.MenuItem deleteItem = new javafx.scene.control.MenuItem("Delete");
+                        final Component target = clickedPart;
+                        deleteItem.setOnAction(e -> {
+                            board.removeComponent(target); // Fix Immutable List crash
+                            saveState();
+                            draw(); // Force UI update
+                        });
+                        
+                        contextMenu.getItems().add(deleteItem);
+                        
+                        if (clickedPart instanceof FixedComponent) {
+                            javafx.scene.control.MenuItem rotItem = new javafx.scene.control.MenuItem("Rotate 90°");
+                            FixedComponent fc = (FixedComponent) clickedPart;
+                            rotItem.setOnAction(e -> {
+                                fc.setRotation(fc.getRotation() + 90);
+                                if (fc.getRotation() >= 360) fc.setRotation(0);
+                                saveState();
+                                draw();
+                            });
+                            contextMenu.getItems().add(rotItem);
+                        }
+                    } else if (hoverGridX != null && hoverGridY != null) {
+                        Pad p = board.getPad(hoverGridX, hoverGridY);
+                        if (p != null && p.isUsed()) {
+                            javafx.scene.control.MenuItem deletePad = new javafx.scene.control.MenuItem("Delete Pad Segment");
+                            deletePad.setOnAction(e -> {
+                                p.deactivate();
+                                saveState();
+                                draw();
+                            });
+                            contextMenu.getItems().add(deletePad);
+                        } else {
+                            double physX = (worldX - padding) / zoomLevel;
+                            if (isViewFlipped)
+                                physX = (board.getColumns() - 1) * board.getGridSpacing() - physX;
+                            double physY = ((board.getRows() - 1) * board.getGridSpacing()) - ((worldY - padding) / zoomLevel);
+
+                            double threshold = 1.2;
+                            boolean hitTrace = false;
+                            for (Trace trace : board.getTraces()) {
+                                if (trace.getLayer() != activeLayer) continue;
+                                List<Trace.GridPoint> pts = trace.getSegments();
+                                for (int i = 0; i < pts.size() - 1; i++) {
+                                    double ax = pts.get(i).x() * board.getGridSpacing();
+                                    double ay = pts.get(i).y() * board.getGridSpacing();
+                                    double bx = pts.get(i + 1).x() * board.getGridSpacing();
+                                    double by = pts.get(i + 1).y() * board.getGridSpacing();
+                                    if (distToSegment(physX, physY, ax, ay, bx, by) < threshold) {
+                                        hitTrace = true; break;
+                                    }
+                                }
+                                if (hitTrace) break;
+                            }
+                            
+                            if (hitTrace) {
+                                javafx.scene.control.MenuItem deleteTrace = new javafx.scene.control.MenuItem("Delete Trace Segment");
+                                deleteTrace.setOnAction(e -> {
+                                    eraseSegmentAt(worldX, worldY);
+                                    saveState();
+                                    draw();
+                                });
+                                contextMenu.getItems().add(deleteTrace);
+                            }
+                        }
+                    }
+                    
+                    if (!contextMenu.getItems().isEmpty()) {
+                        contextMenu.show(this, event.getScreenX() + 10, event.getScreenY() + 10);
+                        return;
+                    }
+                } else if (event.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                    if (clickedPart != null) {
+                        draggedPart = clickedPart;
+                        if (hoverGridX != null) dragStartGridX = hoverGridX;
+                        if (hoverGridY != null) dragStartGridY = hoverGridY;
+                        return;
+                    }
+                }
+            }
 
             // --- 1. LOGIQUE DU POINTEUR (Attraper un texte) ---
             if (currentTool == Tool.POINTER) {
@@ -335,6 +500,21 @@ public class EditorCanvas extends Canvas {
 
             // --- 3. LOGIQUE D'EFFACEMENT SÉLECTIVE ---
             if (currentTool == Tool.ERASE) {
+                if (board.getComponents() != null) {
+                    Component compToRemove = null;
+                    for (Component c : board.getComponents()) {
+                        if (c.isHovered()) {
+                            compToRemove = c;
+                            break;
+                        }
+                    }
+                    if (compToRemove != null) {
+                        board.removeComponent(compToRemove);
+                        saveState();
+                        draw();
+                        return;
+                    }
+                }
                 double physXClick = (worldX - padding) / zoomLevel;
                 if (isViewFlipped)
                     physXClick = (board.getColumns() - 1) * board.getGridSpacing() - physXClick;
@@ -373,6 +553,43 @@ public class EditorCanvas extends Canvas {
                     eraseSegmentAt(worldX, worldY);
                 }
                 draw();
+                return;
+            }
+
+            // --- 5. LOGIQUE DE PLACEMENT DE COMPOSANT ---
+            if (currentTool == Tool.PLACE_PART && pendingPart != null) {
+                if (hoverGridX != null && hoverGridY != null) {
+                    if (pendingPart instanceof FixedComponent) {
+                        Component clone = pendingPart.cloneComponent();
+                        clone.setStartX(hoverGridX);
+                        clone.setStartY(hoverGridY);
+                        board.addComponent(clone);
+                        setTool(Tool.POINTER);
+                        saveState();
+                        draw();
+                    } else if (pendingPart instanceof StretchComponent) {
+                        if (!isPlacingSecondPoint) {
+                            // Clic 1 : point de départ
+                            activeStretchPart = (StretchComponent) pendingPart.cloneComponent();
+                            activeStretchPart.setStartX(hoverGridX);
+                            activeStretchPart.setStartY(hoverGridY);
+                            activeStretchPart.setEndX(hoverGridX);
+                            activeStretchPart.setEndY(hoverGridY);
+                            isPlacingSecondPoint = true;
+                        } else {
+                            // Clic 2 : point d'arrivée
+                            activeStretchPart.setEndX(hoverGridX);
+                            activeStretchPart.setEndY(hoverGridY);
+                            board.addComponent(activeStretchPart);
+                            
+                            isPlacingSecondPoint = false;
+                            activeStretchPart = null;
+                            setTool(Tool.POINTER);
+                            saveState();
+                        }
+                        draw();
+                    }
+                }
                 return;
             }
 
@@ -563,6 +780,11 @@ public class EditorCanvas extends Canvas {
                 drawComponent(gc, c);
             }
         }
+        
+        // 4.6 Dessin en temps réel d'un composant Stretch en cours de placement !
+        if (activeStretchPart != null && isPlacingSecondPoint) {
+            drawComponent(gc, activeStretchPart);
+        }
 
         // 5. Dessin des Textes TOUT AU-DESSUS de tout le reste
         if (board.getTextLabels() != null) {
@@ -631,41 +853,88 @@ public class EditorCanvas extends Canvas {
     }
 
     private void drawComponent(GraphicsContext gc, Component c) {
+        double gs = physicalToScreen(board.getGridSpacing());
+
         if (c instanceof FixedComponent) {
             FixedComponent fc = (FixedComponent) c;
+            boolean isTransistor = fc.getName() != null && fc.getName().startsWith("Q");
+            double sx = getScreenX(fc.getStartX());
             double sy = getScreenY(fc.getStartY());
 
-            // 3 cells wide = 3 * gridSpacing
-            double rectW = physicalToScreen(board.getGridSpacing() * 3);
-            double rectH = physicalToScreen(board.getGridSpacing() * 1.5);
-            double centerX = getScreenX(fc.getStartX() + 1); // Center is on the middle pad (Pad 2)
-            double centerY = sy;
+            gc.save();
+            gc.translate(sx, sy);
+            if (fc.getRotation() != 0) gc.rotate(fc.getRotation());
+            
+            if (isTransistor) {
+                if (c.isHovered()) {
+                    gc.setStroke(Color.YELLOW);
+                    gc.setLineWidth(3.0);
+                    gc.strokeRect(-gs * 1.4, -gs * 0.4, gs * 2.8, gs * 0.8);
+                }
+                gc.setFill(Color.web("#333333", 0.7)); // -10% opacity
+                gc.setStroke(Color.WHITE);
+                gc.setLineWidth(1.0);
+                gc.fillRect(-gs * 1.4, -gs * 0.4, gs * 2.8, gs * 0.8);
+                gc.strokeRect(-gs * 1.4, -gs * 0.4, gs * 2.8, gs * 0.8);
+                
+                gc.setFill(Color.WHITE);
+                gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+                gc.setTextBaseline(javafx.geometry.VPos.CENTER);
+                gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
+                
+                if (fc.isShowValue() && fc.getValue() != null) {
+                    gc.fillText(fc.getValue(), 0, 0); // At center
+                } else if (fc.isShowName() && fc.getName() != null) {
+                    gc.fillText(fc.getName(), 0, 0); // At center
+                }
+                
+                if (fc.getPinoutOrCount() != null) {
+                    String pinout = fc.getPinoutOrCount();
+                    for (int i = 0; i < pinout.length(); i++) {
+                        gc.fillText(String.valueOf(pinout.charAt(i)), gs * (i - 1), 0);
+                    }
+                }
+            } else {
+                // IC logic (Variable Pin Count, 4 width)
+                int pinsPerSide = 4;
+                try {
+                    if (fc.getPinoutOrCount() != null) {
+                        pinsPerSide = Integer.parseInt(fc.getPinoutOrCount()) / 2;
+                    }
+                } catch (Exception e) {}
 
-            gc.setFill(Color.web("#333333", 0.8));
-            gc.setStroke(Color.WHITE);
-            gc.setLineWidth(1.0);
-            gc.fillRect(centerX - rectW / 2, centerY - rectH / 2, rectW, rectH);
-            gc.strokeRect(centerX - rectW / 2, centerY - rectH / 2, rectW, rectH);
+                double bodyW = gs * 4;
+                double bodyH = gs * pinsPerSide;
+                // Anchor at 0,0 going LEFT and DOWN unrotated, so that -90 rotated goes RIGHT and DOWN
+                double rectX = -gs * 3.5;
+                double rectY = -gs * 0.5;
 
-            gc.setFill(Color.WHITE);
-            gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
-            gc.setTextBaseline(javafx.geometry.VPos.CENTER);
-            gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
+                if (c.isHovered()) {
+                    gc.setStroke(Color.YELLOW);
+                    gc.setLineWidth(3.0);
+                    gc.strokeRect(rectX, rectY, bodyW, bodyH);
+                }
+                gc.setFill(Color.web("#333333", 0.7)); // -10% opacity
+                gc.setStroke(Color.WHITE);
+                gc.setLineWidth(1.0);
+                gc.fillRect(rectX, rectY, bodyW, bodyH);
+                gc.strokeRect(rectX, rectY, bodyW, bodyH);
+                
+                // Draw pin 1 indicator notch
+                gc.strokeArc(-gs * 2.0, rectY - gs * 0.5, gs, gs, 180, 180, javafx.scene.shape.ArcType.OPEN);
 
-            if (fc.isShowValue() && fc.getValue() != null) {
-                gc.fillText(fc.getValue(), centerX, centerY);
-            } else if (fc.isShowName() && fc.getName() != null) {
-                gc.fillText(fc.getName(), centerX, centerY);
-            }
-
-            if (fc.getPinoutOrCount() != null) {
-                String pinout = fc.getPinoutOrCount();
-                for (int i = 0; i < pinout.length(); i++) {
-                    String letter = String.valueOf(pinout.charAt(i));
-                    double padX = getScreenX(fc.getStartX() + i);
-                    gc.fillText(letter, padX, sy);
+                gc.setFill(Color.WHITE);
+                gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+                gc.setTextBaseline(javafx.geometry.VPos.CENTER);
+                gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
+                
+                if (fc.isShowValue() && fc.getValue() != null) {
+                    gc.fillText(fc.getValue(), rectX + bodyW / 2, bodyH / 2 - gs * 0.5);
+                } else if (fc.isShowName() && fc.getName() != null) {
+                    gc.fillText(fc.getName(), rectX + bodyW / 2, bodyH / 2 - gs * 0.5);
                 }
             }
+            gc.restore();
         } else if (c instanceof StretchComponent) {
             StretchComponent sc = (StretchComponent) c;
             double x1 = getScreenX(sc.getStartX());
@@ -680,31 +949,73 @@ public class EditorCanvas extends Canvas {
             gc.setLineWidth(physicalToScreen(0.5));
             gc.strokeLine(x1, y1, x2, y2); // Leads
 
-            double bodyW = physicalToScreen(board.getGridSpacing() * 1.5);
-            double bodyH = physicalToScreen(board.getGridSpacing() * 0.8);
-
             gc.save();
             gc.translate(midX, midY);
             double angle = Math.toDegrees(Math.atan2(y2 - y1, x2 - x1));
             gc.rotate(angle);
 
-            gc.setFill(Color.web("#8B4513", 0.9)); // Brown resistor body
-            gc.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
-            gc.setStroke(Color.WHITE);
-            gc.setLineWidth(1.0);
-            gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+            boolean isCapacitor = sc.getName() != null && sc.getName().startsWith("C");
+            if (isCapacitor) {
+                double distPx = Math.hypot(x2 - x1, y2 - y1);
+                double leadPaddingPx = physicalToScreen(board.getGridSpacing() * 0.4);
+                double capW = Math.max(physicalToScreen(board.getGridSpacing() * 0.6), distPx - leadPaddingPx);
+                double capH = physicalToScreen(board.getGridSpacing() * 0.9);
+                if (c.isHovered()) {
+                    gc.setStroke(Color.YELLOW);
+                    gc.setLineWidth(3.0);
+                    gc.strokeOval(-capW / 2, -capH / 2, capW, capH);
+                }
+                gc.setFill(Color.web("#2ECC71", 0.8)); // Green, -10% opacity
+                gc.fillOval(-capW / 2, -capH / 2, capW, capH);
+                gc.setStroke(Color.WHITE);
+                gc.setLineWidth(1.0);
+                gc.strokeOval(-capW / 2, -capH / 2, capW, capH);
+            } else {
+                double bodyW = physicalToScreen(board.getGridSpacing() * 1.5);
+                double bodyH = physicalToScreen(board.getGridSpacing() * 0.8);
+                if (c.isHovered()) {
+                    gc.setStroke(Color.YELLOW);
+                    gc.setLineWidth(3.0);
+                    gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+                }
+                gc.setFill(Color.web("#ADD8E6", 0.8)); // Pale Blue, -10% opacity
+                gc.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+                gc.setStroke(Color.WHITE);
+                gc.setLineWidth(1.0);
+                gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+            }
 
-            gc.setFill(Color.WHITE);
+            gc.setFill(Color.WHITE); // Revert to white text
             gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
             gc.setTextBaseline(javafx.geometry.VPos.CENTER);
             // On utilise une police légèrement plus petite pour que ça rentre bien dans une
-            // résistance !
+            // résistance ou condensateur !
             gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.0)));
 
+            String textToDraw = null;
             if (sc.isShowValue() && sc.getValue() != null) {
-                gc.fillText(sc.getValue(), 0, 0);
+                textToDraw = sc.getValue();
             } else if (sc.isShowName() && sc.getName() != null) {
-                gc.fillText(sc.getName(), 0, 0);
+                textToDraw = sc.getName();
+            }
+
+            if (textToDraw != null) {
+                if (sc.getStartX() == sc.getEndX()) {
+                    // Vertical Component explicitly reading bottom to top
+                    gc.save();
+                    gc.rotate(-angle - 90);
+                    gc.fillText(textToDraw, 0, 0);
+                    gc.restore();
+                } else if (sc.getStartY() == sc.getEndY()) {
+                    gc.save();
+                    if (Math.abs(angle) == 180) {
+                        gc.rotate(180); // Prevent horizontal from being upside-down if drawn right-to-left
+                    }
+                    gc.fillText(textToDraw, 0, 0);
+                    gc.restore();
+                } else {
+                    gc.fillText(textToDraw, 0, 0);
+                }
             }
 
             gc.restore();

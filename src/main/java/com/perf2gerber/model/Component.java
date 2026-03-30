@@ -12,6 +12,9 @@ public abstract class Component {
     private boolean showName = false;
     private boolean showValue = true;
 
+    // Phase 6 UI fields (not serialized)
+    private transient boolean isHovered = false;
+
     public Component() {
         this.id = UUID.randomUUID().toString();
     }
@@ -39,4 +42,19 @@ public abstract class Component {
     
     public boolean isShowValue() { return showValue; }
     public void setShowValue(boolean showValue) { this.showValue = showValue; }
+
+    public boolean isHovered() { return isHovered; }
+    public void setHovered(boolean hovered) { this.isHovered = hovered; }
+
+    /**
+     * Determine if a grid coordinate falls within the boundary.
+     * Note: worldX/Y are purely continuous grid coordinates!
+     */
+    public abstract boolean contains(double worldX, double worldY);
+
+    /**
+     * Creates a deep duplicate of this component (must be implemented by subtypes).
+     * The ID generated for the new component is freshly randomized on instantiation.
+     */
+    public abstract Component cloneComponent();
 }

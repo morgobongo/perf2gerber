@@ -2,6 +2,9 @@ package com.perf2gerber;
 
 import com.perf2gerber.model.Board;
 import com.perf2gerber.model.Trace;
+import com.perf2gerber.model.Component;
+import com.perf2gerber.model.FixedComponent;
+import com.perf2gerber.model.StretchComponent;
 import com.perf2gerber.ui.EditorCanvas;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -33,6 +36,7 @@ public class App extends Application {
     private ToggleButton btnWire;
     private ToggleButton btnText;
     private ToggleButton btnErase;
+    private ComboBox<String> partsBox;
     private ToggleGroup toolGroup;
     // NOUVEAU : Mémoire des touches simples et Préférences persistantes
     private java.util.Map<EditorCanvas.Tool, KeyCode> shortcuts = new java.util.EnumMap<>(EditorCanvas.Tool.class);
@@ -321,6 +325,16 @@ public class App extends Application {
         btnErase.setToggleGroup(toolGroup);
         btnText.setToggleGroup(toolGroup);
 
+        partsBox = new ComboBox<>();
+        partsBox.getItems().addAll("Transistor", "IC", "Resistor", "Capacitor");
+        partsBox.setPromptText("Parts...");
+        partsBox.setOnAction(e -> {
+            String selection = partsBox.getValue();
+            if (selection != null) {
+                openConfigDialogForPart(selection);
+            }
+        });
+
         toolGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (oldVal != null) {
                 ((ToggleButton) oldVal).setStyle(""); // Enlève le vert de l'ancien
@@ -391,13 +405,78 @@ public class App extends Application {
         });
 
         toolbar.getChildren().addAll(
-                btnPointer, btnPads, btnWire, btnErase, btnText,
+                btnPointer, btnPads, btnWire, btnErase, btnText, partsBox,
                 viewBox,
                 lblLayer, layerBox,
                 lblWidth, widthBox,
                 lblPadSize, padBox);
 
         return toolbar;
+    }
+
+    private void openConfigDialogForPart(String type) {
+        Dialog<Component> configDialog = new Dialog<>();
+        configDialog.setTitle("Configure " + type);
+        configDialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        
+        TextField nameField = new TextField();
+        TextField paramField = new TextField();
+        Label paramLabel = new Label();
+        
+        if (type.equals("Transistor")) {
+            nameField.setText("Q?");
+            paramLabel.setText("Pinout (e.g. CBE):");
+            paramField.setText("CBE");
+        } else if (type.equals("IC")) {
+            nameField.setText("U?");
+            paramLabel.setText("Pin Count:");
+            paramField.setText("8");
+        } else if (type.equals("Resistor")) {
+            nameField.setText("R?");
+            paramLabel.setText("Value:");
+            paramField.setText("10k");
+        } else if (type.equals("Capacitor")) {
+            nameField.setText("C?");
+            paramLabel.setText("Value:");
+            paramField.setText("100nF");
+        }
+        
+        grid.add(new Label("Name:"), 0, 0);
+        grid.add(nameField, 1, 0);
+        grid.add(paramLabel, 0, 1);
+        grid.add(paramField, 1, 1);
+        
+        configDialog.getDialogPane().setContent(grid);
+        Platform.runLater(nameField::requestFocus);
+        
+        configDialog.setResultConverter(dialogButton -> {
+            if (dialogButton == ButtonType.OK) {
+                if (type.equals("Transistor") || type.equals("IC")) {
+                    FixedComponent fc = new FixedComponent();
+                    fc.setName(nameField.getText());
+                    fc.setPinoutOrCount(paramField.getText());
+                    if (type.equals("IC")) fc.setRotation(-90.0);
+                    return fc;
+                } else {
+                    StretchComponent sc = new StretchComponent();
+                    sc.setName(nameField.getText());
+                    sc.setValue(paramField.getText());
+                    return sc;
+                }
+            }
+            return null;
+        });
+        
+        Optional<Component> finalPart = configDialog.showAndWait();
+        if (finalPart.isPresent()) {
+            canvas.setPendingPart(finalPart.get());
+        }
+        
+        // Removed clearSelection explicitly to leave the selected Component name visible!
     }
 
     private Object[] showStartupDialog() {
@@ -464,27 +543,7 @@ public class App extends Application {
 
         // 2. On pré-configure le fichier de sauvegarde (MyAwesomeProject.json)
         this.currentFile = new java.io.File(projDir, projName + ".json");
-
-        Board b = new Board(cols + 2, rows + 2, 2.54, 2.0, 1.0);
-
-        // --- PHASE 3 TEST INJECTION ---
-        com.perf2gerber.model.FixedComponent fc = new com.perf2gerber.model.FixedComponent();
-        fc.setName("Q1");
-        fc.setPinoutOrCount("CBE");
-        fc.setStartX(5);
-        fc.setStartY(5);
-        b.addComponent(fc);
-
-        com.perf2gerber.model.StretchComponent sc = new com.perf2gerber.model.StretchComponent();
-        sc.setName("R1");
-        sc.setValue("10k");
-        sc.setStartX(5);
-        sc.setStartY(8);
-        sc.setEndX(9);
-        sc.setEndY(8);
-        b.addComponent(sc);
-
-        return b;
+        return new Board(cols + 2, rows + 2, 2.54, 2.0, 1.0);
     }
 
     private void startNewProject() {
