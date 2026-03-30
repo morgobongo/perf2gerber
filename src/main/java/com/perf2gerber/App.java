@@ -117,6 +117,19 @@ public class App extends Application {
         scene.setOnKeyPressed(event -> {
             KeyCode code = event.getCode();
 
+            // ZOOMING (Keyboard)
+            if (event.isShortcutDown()) { // Cmd on Mac, Ctrl on Windows
+                if (code == KeyCode.EQUALS || code == KeyCode.PLUS) {
+                    canvas.zoom(1.1);
+                    event.consume();
+                    return;
+                } else if (code == KeyCode.MINUS) {
+                    canvas.zoom(1 / 1.1);
+                    event.consume();
+                    return;
+                }
+            }
+
             // Touche Échap pour tout annuler et revenir au pointeur
             if (code == KeyCode.ESCAPE) {
                 canvas.endCurrentTrace();
@@ -290,7 +303,6 @@ public class App extends Application {
         btnErase.setToggleGroup(toolGroup);
         btnText.setToggleGroup(toolGroup);
 
-        // NOUVEAU : Gère la couleur, le changement d'outil, ET le retour au pointeur !
         toolGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (oldVal != null) {
                 ((ToggleButton) oldVal).setStyle(""); // Enlève le vert de l'ancien
@@ -362,7 +374,6 @@ public class App extends Application {
         return toolbar;
     }
 
-    // --- MISE À JOUR : LA FENÊTRE DEMANDE MAINTENANT LE NOM DU PROJET ---
     private Object[] showStartupDialog() {
         Dialog<Object[]> dialog = new Dialog<>();
         dialog.setTitle("New Project");
@@ -377,7 +388,7 @@ public class App extends Application {
         grid.setPadding(new Insets(20, 150, 10, 10));
 
         TextField nameField = new TextField("MyAwesomeProject");
-        TextField colsField = new TextField("22");
+        TextField colsField = new TextField("21");
         TextField rowsField = new TextField("11");
 
         grid.add(new Label("Project Name:"), 0, 0);
@@ -398,7 +409,7 @@ public class App extends Application {
                     if (projName.isEmpty()) projName = "Untitled_Project";
                     return new Object[]{projName, Integer.parseInt(colsField.getText()), Integer.parseInt(rowsField.getText())};
                 } catch (NumberFormatException e) {
-                    return new Object[]{nameField.getText().trim(), 22, 11};
+                    return new Object[]{nameField.getText().trim(), 21, 11};
                 }
             }
             return null;
