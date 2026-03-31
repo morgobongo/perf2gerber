@@ -2,7 +2,8 @@ package com.perf2gerber.model;
 
 /**
  * Represents a single hole/pad on the perfboard grid.
- * It stores its position on the grid and calculates its physical coordinates when needed.
+ * It stores its position on the grid and calculates its physical coordinates
+ * when needed.
  */
 public class Pad {
 
@@ -61,8 +62,6 @@ public class Pad {
     public void deactivate() {
         this.isUsed = false;
     }
-
-
 
     // --- Standard Getters ---
 

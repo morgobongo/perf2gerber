@@ -75,6 +75,7 @@ public class App extends Application {
         });
 
         MenuBar menuBar = buildMenuBar();
+        loadComponentColors(); // Charge les couleurs sauvegardées
         HBox toolbar = buildToolbar();
         HBox statusBar = buildStatusBar();
 
@@ -255,7 +256,9 @@ public class App extends Application {
         Menu menuSettings = new Menu("Settings");
         MenuItem itemShortcuts = new MenuItem("Keyboard Shortcuts...");
         itemShortcuts.setOnAction(e -> openShortcutsDialog());
-        menuSettings.getItems().add(itemShortcuts);
+        MenuItem itemColors = new MenuItem("Component Colors...");
+        itemColors.setOnAction(e -> openComponentColorsDialog());
+        menuSettings.getItems().addAll(itemShortcuts, itemColors);
         // ----------------------------------
 
         menuEdit.getItems().addAll(itemUndo, itemRedo);
@@ -326,7 +329,7 @@ public class App extends Application {
         btnText.setToggleGroup(toolGroup);
 
         partsBox = new MenuButton("Parts...");
-        String[] parts = {"Resistor", "Capacitor", "Capacitor (Polarized)", "Diode", "LED", "Transistor", "IC"};
+        String[] parts = { "Resistor", "Capacitor", "Capacitor (Polarized)", "Diode", "LED", "Transistor", "IC" };
         for (String part : parts) {
             MenuItem item = new MenuItem(part);
             item.setOnAction(e -> {
@@ -344,6 +347,9 @@ public class App extends Application {
             if (newVal != null) {
                 ((ToggleButton) newVal)
                         .setStyle("-fx-background-color: #5C8A5C; -fx-text-fill: white; -fx-font-weight: bold;");
+
+                // Réinitialise le label du menu Parts quand on change d'outil
+                partsBox.setText("Parts...");
 
                 // On met à jour l'outil du canvas en fonction du bouton qui vient de s'allumer
                 if (newVal == btnPointer)
@@ -373,11 +379,6 @@ public class App extends Application {
         Label lblWidth = new Label(" Trace:");
         lblWidth.setTextFill(Color.WHITE);
 
-        ComboBox<String> viewBox = new ComboBox<>();
-        viewBox.getItems().addAll("Front View", "Back View (Flipped)");
-        viewBox.setValue("Front View");
-        viewBox.setOnAction(e -> canvas.setViewFlipped(viewBox.getValue().contains("Back")));
-
         ComboBox<String> layerBox = new ComboBox<>();
         layerBox.getItems().addAll("Bottom Layer (Blue)", "Top Layer (Red)");
         layerBox.setValue("Bottom Layer (Blue)");
@@ -405,12 +406,24 @@ public class App extends Application {
             canvas.saveState();
         });
 
+        // Bouton "Preview" — cache les pads non utilisés tant qu'on maintient enfoncé
+        Button btnPreview = new Button("Hide Unused Pads");
+        btnPreview.setStyle("-fx-background-color: #3C3F41; -fx-text-fill: white; -fx-font-weight: bold;");
+        btnPreview.setOnMousePressed(e -> {
+            canvas.setHideUnusedPads(true);
+            btnPreview.setStyle("-fx-background-color: #D4AF37; -fx-text-fill: #1E1E1E; -fx-font-weight: bold;");
+        });
+        btnPreview.setOnMouseReleased(e -> {
+            canvas.setHideUnusedPads(false);
+            btnPreview.setStyle("-fx-background-color: #3C3F41; -fx-text-fill: white; -fx-font-weight: bold;");
+        });
+
         toolbar.getChildren().addAll(
                 btnPointer, btnPads, btnWire, btnErase, btnText, partsBox,
-                viewBox,
                 lblLayer, layerBox,
                 lblWidth, widthBox,
-                lblPadSize, padBox);
+                lblPadSize, padBox,
+                btnPreview);
 
         return toolbar;
     }
@@ -425,7 +438,8 @@ public class App extends Application {
             } else {
                 StretchComponent sc = new StretchComponent();
                 sc.setType(type);
-                if (type.equals("LED")) sc.setColor("Red"); // Default color
+                if (type.equals("LED"))
+                    sc.setColor("Red"); // Default color
                 canvas.setPendingPart(sc);
             }
             return;
@@ -434,27 +448,27 @@ public class App extends Application {
         Dialog<Component> configDialog = new Dialog<>();
         configDialog.setTitle("Configure " + type);
         configDialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-        
+
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
-        
+
         TextField nameField = new TextField();
         TextField paramField = new TextField();
         Label paramLabel = new Label();
-        
+
         nameField.setPromptText("U?");
         paramLabel.setText("Pin Count:");
         paramField.setPromptText("8");
-        
+
         grid.add(new Label("Name:"), 0, 0);
         grid.add(nameField, 1, 0);
         grid.add(paramLabel, 0, 1);
         grid.add(paramField, 1, 1);
-        
+
         configDialog.getDialogPane().setContent(grid);
         Platform.runLater(nameField::requestFocus);
-        
+
         configDialog.setResultConverter(dialogButton -> {
             if (dialogButton == ButtonType.OK) {
                 FixedComponent fc = new FixedComponent();
@@ -466,13 +480,14 @@ public class App extends Application {
             }
             return null;
         });
-        
+
         Optional<Component> finalPart = configDialog.showAndWait();
         if (finalPart.isPresent()) {
             canvas.setPendingPart(finalPart.get());
         }
-        
-        // Removed clearSelection explicitly to leave the selected Component name visible!
+
+        // Removed clearSelection explicitly to leave the selected Component name
+        // visible!
     }
 
     private Object[] showStartupDialog() {
@@ -788,6 +803,85 @@ public class App extends Application {
         }
     }
 
+    private void openComponentColorsDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Component Colors");
+        dialog.setHeaderText("Choose colors for each component type.");
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20, 50, 10, 10));
+
+        javafx.scene.control.ColorPicker cpResistor = new javafx.scene.control.ColorPicker(
+                colorFromHex(prefs.get("COLOR_RESISTOR", "#ADD8E6")));
+        javafx.scene.control.ColorPicker cpCapacitor = new javafx.scene.control.ColorPicker(
+                colorFromHex(prefs.get("COLOR_CAPACITOR", "#2ECC71")));
+        javafx.scene.control.ColorPicker cpElectroA = new javafx.scene.control.ColorPicker(
+                colorFromHex(prefs.get("COLOR_ELECTROCAP_A", "#222222")));
+        javafx.scene.control.ColorPicker cpElectroB = new javafx.scene.control.ColorPicker(
+                colorFromHex(prefs.get("COLOR_ELECTROCAP_B", "#888888")));
+
+        grid.add(new Label("Resistor:"), 0, 0);
+        grid.add(cpResistor, 1, 0);
+        grid.add(new Label("Capacitor:"), 0, 1);
+        grid.add(cpCapacitor, 1, 1);
+        grid.add(new Label("Polarized Cap (+):"), 0, 2);
+        grid.add(cpElectroA, 1, 2);
+        grid.add(new Label("Polarized Cap (-):"), 0, 3);
+        grid.add(cpElectroB, 1, 3);
+
+        Button btnReset = new Button("Reset to Defaults");
+        btnReset.setOnAction(e -> {
+            cpResistor.setValue(colorFromHex("#ADD8E6"));
+            cpCapacitor.setValue(colorFromHex("#2ECC71"));
+            cpElectroA.setValue(colorFromHex("#222222"));
+            cpElectroB.setValue(colorFromHex("#888888"));
+        });
+        grid.add(btnReset, 0, 5, 2, 1);
+
+        dialog.getDialogPane().setContent(grid);
+
+        Optional<ButtonType> result = dialog.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            String hexR = toHex(cpResistor.getValue());
+            String hexC = toHex(cpCapacitor.getValue());
+            String hexEA = toHex(cpElectroA.getValue());
+            String hexEB = toHex(cpElectroB.getValue());
+
+            prefs.put("COLOR_RESISTOR", hexR);
+            prefs.put("COLOR_CAPACITOR", hexC);
+            prefs.put("COLOR_ELECTROCAP_A", hexEA);
+            prefs.put("COLOR_ELECTROCAP_B", hexEB);
+
+            canvas.setResistorColor(cpResistor.getValue());
+            canvas.setCapacitorColor(cpCapacitor.getValue());
+            canvas.setElectroCapColors(cpElectroA.getValue(), cpElectroB.getValue());
+        }
+    }
+
+    private void loadComponentColors() {
+        canvas.setResistorColor(colorFromHex(prefs.get("COLOR_RESISTOR", "#ADD8E6")));
+        canvas.setCapacitorColor(colorFromHex(prefs.get("COLOR_CAPACITOR", "#2ECC71")));
+        canvas.setElectroCapColors(
+                colorFromHex(prefs.get("COLOR_ELECTROCAP_A", "#222222")),
+                colorFromHex(prefs.get("COLOR_ELECTROCAP_B", "#888888")));
+    }
+
+    private String toHex(javafx.scene.paint.Color c) {
+        return String.format("#%02X%02X%02X",
+                (int) (c.getRed() * 255),
+                (int) (c.getGreen() * 255),
+                (int) (c.getBlue() * 255));
+    }
+
+    /** Crée une Color via RGB pour éviter les noms de couleurs ("Pale Blue" etc.) */
+    private javafx.scene.paint.Color colorFromHex(String hex) {
+        javafx.scene.paint.Color c = javafx.scene.paint.Color.web(hex);
+        return javafx.scene.paint.Color.color(c.getRed(), c.getGreen(), c.getBlue());
+    }
+
     // --- NOUVELLE PETITE MÉTHODE DE SAUVEGARDE ---
     private void updateShortcut(EditorCanvas.Tool tool, KeyCode code) {
         shortcuts.put(tool, code); // Met à jour pour la session active
@@ -827,48 +921,51 @@ public class App extends Application {
         Dialog<Boolean> configDialog = new Dialog<>();
         configDialog.setTitle("Properties: " + (c.getType() != null ? c.getType() : "Component"));
         configDialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-        
+
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
-        
+
         TextField nameField = new TextField(c.getName() != null ? c.getName() : "");
         TextField paramField = new TextField();
-        
+
         String paramLabelStr = "Value:";
         if (c instanceof FixedComponent) {
-            if ("IC".equals(c.getType())) paramLabelStr = "Pin Count:";
-            else if ("Transistor".equals(c.getType())) paramLabelStr = "Pinout (e.g. CBE):";
-            paramField.setText(((FixedComponent) c).getPinoutOrCount() != null ? ((FixedComponent) c).getPinoutOrCount() : "");
+            if ("IC".equals(c.getType()))
+                paramLabelStr = "Pin Count:";
+            else if ("Transistor".equals(c.getType()))
+                paramLabelStr = "Pinout (e.g. CBE):";
+            paramField.setText(
+                    ((FixedComponent) c).getPinoutOrCount() != null ? ((FixedComponent) c).getPinoutOrCount() : "");
         } else {
             paramField.setText(c.getValue() != null ? c.getValue() : "");
         }
-        
+
         javafx.scene.control.CheckBox chkShowName = new javafx.scene.control.CheckBox("Display Name");
         chkShowName.setSelected(c.isShowName());
-        
+
         javafx.scene.control.CheckBox chkShowValue = new javafx.scene.control.CheckBox("Display Value");
         chkShowValue.setSelected(c.isShowValue());
-        
+
         javafx.scene.control.ComboBox<String> colorBox = new javafx.scene.control.ComboBox<>();
         colorBox.getItems().addAll("Red", "Green", "Blue", "Yellow", "White");
         colorBox.setValue(c.getColor() != null ? c.getColor() : "Red");
-        
+
         grid.add(new Label("Name:"), 0, 0);
         grid.add(nameField, 1, 0);
         grid.add(new Label(paramLabelStr), 0, 1);
         grid.add(paramField, 1, 1);
         grid.add(chkShowName, 1, 2);
         grid.add(chkShowValue, 1, 3);
-        
+
         if ("LED".equals(c.getType())) {
             grid.add(new Label("Color:"), 0, 4);
             grid.add(colorBox, 1, 4);
         }
-        
+
         configDialog.getDialogPane().setContent(grid);
         Platform.runLater(nameField::requestFocus);
-        
+
         configDialog.setResultConverter(dialogButton -> {
             if (dialogButton == ButtonType.OK) {
                 String newName = nameField.getText();
@@ -888,7 +985,7 @@ public class App extends Application {
             }
             return false;
         });
-        
+
         return configDialog.showAndWait().orElse(false);
     }
 

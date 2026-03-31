@@ -5,8 +5,8 @@ public class TextLabel {
     private Trace.Layer layer;
     private double x;
     private double y;
-    private double fontSize; // NOUVEAU : Taille en mm
-    private double rotation; // NOUVEAU : Angle en degrés
+    private double fontSize;
+    private double rotation;
 
     public TextLabel(String text, Trace.Layer layer, double x, double y, double fontSize, double rotation) {
         this.text = text;
@@ -17,19 +17,51 @@ public class TextLabel {
         this.rotation = rotation;
     }
 
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
-    public Trace.Layer getLayer() { return layer; }
-    public void setLayer(Trace.Layer layer) { this.layer = layer; }
+    public String getText() {
+        return text;
+    }
 
-    public double getX() { return x; }
-    public void setX(double x) { this.x = x; } // Pour le déplacement futur
+    public void setText(String text) {
+        this.text = text;
+    }
 
-    public double getY() { return y; }
-    public void setY(double y) { this.y = y; } // Pour le déplacement futur
+    public Trace.Layer getLayer() {
+        return layer;
+    }
 
-    public double getFontSize() { return fontSize; }
-    public void setFontSize(double fontSize) { this.fontSize = fontSize; }
-    public double getRotation() { return rotation; }
-    public void setRotation(double rotation) { this.rotation = rotation; }
+    public void setLayer(Trace.Layer layer) {
+        this.layer = layer;
+    }
+
+    public double getX() {
+        return x;
+    }
+
+    public void setX(double x) {
+        this.x = x;
+    } // Pour le déplacement futur
+
+    public double getY() {
+        return y;
+    }
+
+    public void setY(double y) {
+        this.y = y;
+    } // Pour le déplacement futur
+
+    public double getFontSize() {
+        return fontSize;
+    }
+
+    public void setFontSize(double fontSize) {
+        this.fontSize = fontSize;
+    }
+
+    public double getRotation() {
+        return rotation;
+    }
+
+    public void setRotation(double rotation) {
+        this.rotation = rotation;
+    }
 }

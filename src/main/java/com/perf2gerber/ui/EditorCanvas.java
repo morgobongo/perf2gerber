@@ -47,6 +47,13 @@ public class EditorCanvas extends Canvas {
     private Integer dragStartGridY = null;
     private boolean isCommandPressed = false;
     private boolean isViewFlipped = false;
+    private boolean hideUnusedPads = false;
+
+    // Couleurs personnalisables des composants
+    private Color resistorColor = Color.web("#ADD8E6", 0.8);
+    private Color capacitorColor = Color.web("#2ECC71", 0.8);
+    private Color electroCapColorA = Color.web("#222222", 0.9);
+    private Color electroCapColorB = Color.web("#888888", 0.9);
 
     private Integer hoverGridX = null;
     private Integer hoverGridY = null;
@@ -66,6 +73,7 @@ public class EditorCanvas extends Canvas {
     // Variable pour mémoriser le texte qu'on est en train de déplacer avec le
     // pointeur
     private com.perf2gerber.model.TextLabel draggedTextLabel = null;
+    private javafx.scene.control.ContextMenu activeContextMenu = null;
 
     public EditorCanvas(Board board) {
         this.board = board;
@@ -122,7 +130,8 @@ public class EditorCanvas extends Canvas {
     private boolean showTextPropertiesDialog(com.perf2gerber.model.TextLabel label) {
         javafx.scene.control.Dialog<Boolean> dialog = new javafx.scene.control.Dialog<>();
         dialog.setTitle("Propriétés du Texte");
-        dialog.getDialogPane().getButtonTypes().addAll(javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+        dialog.getDialogPane().getButtonTypes().addAll(javafx.scene.control.ButtonType.OK,
+                javafx.scene.control.ButtonType.CANCEL);
 
         javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
         grid.setHgap(10);
@@ -138,7 +147,7 @@ public class EditorCanvas extends Canvas {
         grid.add(sizeF, 1, 1);
         grid.add(new javafx.scene.control.Label("Rotation (°):"), 0, 2);
         grid.add(rotF, 1, 2);
-        
+
         javafx.scene.control.CheckBox chkBottom = new javafx.scene.control.CheckBox("Put Text Under");
         chkBottom.setSelected(label.getLayer() == Trace.Layer.BOTTOM);
         grid.add(chkBottom, 1, 3);
@@ -191,7 +200,12 @@ public class EditorCanvas extends Canvas {
             chkRight.setDisable(prop);
             chkTop.setDisable(prop);
             chkBottom.setDisable(prop);
-            if (prop) { chkLeft.setSelected(true); chkRight.setSelected(true); chkTop.setSelected(true); chkBottom.setSelected(true); }
+            if (prop) {
+                chkLeft.setSelected(true);
+                chkRight.setSelected(true);
+                chkTop.setSelected(true);
+                chkBottom.setSelected(true);
+            }
         });
 
         grid.add(new javafx.scene.control.Label("Rows/Cols to add:"), 0, 0);
@@ -218,7 +232,7 @@ public class EditorCanvas extends Canvas {
                     int right = chkRight.isSelected() ? count : 0;
                     int bottom = chkBottom.isSelected() ? count : 0;
                     int top = chkTop.isSelected() ? count : 0;
-                    return new int[]{left, right, bottom, top};
+                    return new int[] { left, right, bottom, top };
                 } catch (NumberFormatException ex) {
                     return null;
                 }
@@ -231,7 +245,8 @@ public class EditorCanvas extends Canvas {
             updateSize();
             saveState();
             draw();
-            if (onBoardReplaced != null) onBoardReplaced.accept(board);
+            if (onBoardReplaced != null)
+                onBoardReplaced.accept(board);
         });
     }
 
@@ -268,7 +283,7 @@ public class EditorCanvas extends Canvas {
                 try {
                     double copper = Double.parseDouble(copperField.getText());
                     double hole = Double.parseDouble(holeField.getText());
-                    return new double[]{copper, hole};
+                    return new double[] { copper, hole };
                 } catch (NumberFormatException ex) {
                     return null;
                 }
@@ -330,6 +345,43 @@ public class EditorCanvas extends Canvas {
     public void setViewFlipped(boolean flipped) {
         this.isViewFlipped = flipped;
         draw();
+    }
+
+    public void setHideUnusedPads(boolean hide) {
+        this.hideUnusedPads = hide;
+        draw();
+    }
+
+    public void setResistorColor(Color color) {
+        this.resistorColor = Color.color(color.getRed(), color.getGreen(), color.getBlue(), 0.8);
+        draw();
+    }
+
+    public void setCapacitorColor(Color color) {
+        this.capacitorColor = Color.color(color.getRed(), color.getGreen(), color.getBlue(), 0.8);
+        draw();
+    }
+
+    public void setElectroCapColors(Color colorA, Color colorB) {
+        this.electroCapColorA = Color.color(colorA.getRed(), colorA.getGreen(), colorA.getBlue(), 0.9);
+        this.electroCapColorB = Color.color(colorB.getRed(), colorB.getGreen(), colorB.getBlue(), 0.9);
+        draw();
+    }
+
+    public Color getResistorColor() {
+        return resistorColor;
+    }
+
+    public Color getCapacitorColor() {
+        return capacitorColor;
+    }
+
+    public Color getElectroCapColorA() {
+        return electroCapColorA;
+    }
+
+    public Color getElectroCapColorB() {
+        return electroCapColorB;
     }
 
     public void setCurrentTraceWidth(double width) {
@@ -404,13 +456,13 @@ public class EditorCanvas extends Canvas {
             double worldX = convertToWorldX(event.getX());
             double worldY = convertToWorldY(event.getY());
             updateHoverPosition(worldX, worldY);
-            
+
             if ((currentTool == Tool.POINTER || currentTool == Tool.ERASE) && board.getComponents() != null) {
                 double rawGridX = (worldX - padding) / physicalToScreen(board.getGridSpacing());
                 double rawGridYScreen = (worldY - padding) / physicalToScreen(board.getGridSpacing());
                 double continuousGridX = isViewFlipped ? (board.getColumns() - 1) - rawGridX : rawGridX;
                 double continuousGridY = (board.getRows() - 1) - rawGridYScreen;
-                
+
                 boolean foundHover = false;
                 for (int i = board.getComponents().size() - 1; i >= 0; i--) {
                     Component c = board.getComponents().get(i);
@@ -422,13 +474,13 @@ public class EditorCanvas extends Canvas {
                     }
                 }
             }
-            
+
             if (isPlacingSecondPoint && activeStretchPart != null && hoverGridX != null && hoverGridY != null) {
                 activeStretchPart.setEndX(hoverGridX);
                 activeStretchPart.setEndY(hoverGridY);
             }
-            
-            // Unconditionally draw on mouse move to restore Phantom Wire rendering! 
+
+            // Unconditionally draw on mouse move to restore Phantom Wire rendering!
             draw();
         });
 
@@ -442,7 +494,7 @@ public class EditorCanvas extends Canvas {
                 if (hoverGridX != null && hoverGridY != null && dragStartGridX != null && dragStartGridY != null) {
                     int deltaX = hoverGridX - dragStartGridX;
                     int deltaY = hoverGridY - dragStartGridY;
-                    
+
                     if (deltaX != 0 || deltaY != 0) {
                         draggedPart.setStartX(draggedPart.getStartX() + deltaX);
                         draggedPart.setStartY(draggedPart.getStartY() + deltaY);
@@ -496,6 +548,12 @@ public class EditorCanvas extends Canvas {
             double worldX = convertToWorldX(event.getX());
             double worldY = convertToWorldY(event.getY());
 
+            // Ferme le menu contextuel actif sur n'importe quel clic
+            if (activeContextMenu != null && event.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
+                activeContextMenu.hide();
+                activeContextMenu = null;
+            }
+
             // --- 6. DRAG & DROP & CONTEXT MENU POUR COMPOSANTS & TRACES & PADS ---
             if (currentTool == Tool.POINTER) {
                 Component clickedPart = null;
@@ -507,27 +565,35 @@ public class EditorCanvas extends Canvas {
                         }
                     }
                 }
-                
+
                 com.perf2gerber.model.TextLabel clickedTextLabel = null;
                 if ((currentTool == Tool.POINTER || currentTool == Tool.ERASE) && board.getTextLabels() != null) {
                     double physXClick = (worldX - padding) / zoomLevel;
                     if (isViewFlipped)
                         physXClick = (board.getColumns() - 1) * board.getGridSpacing() - physXClick;
-                    double physYClick = ((board.getRows() - 1) * board.getGridSpacing()) - ((worldY - padding) / zoomLevel);
+                    double physYClick = ((board.getRows() - 1) * board.getGridSpacing())
+                            - ((worldY - padding) / zoomLevel);
 
                     for (com.perf2gerber.model.TextLabel label : board.getTextLabels()) {
                         if (label.getLayer() == activeLayer) {
-                            if (Math.abs(label.getX() - physXClick) < 3.0 && Math.abs(label.getY() - physYClick) < 3.0) {
+                            if (Math.abs(label.getX() - physXClick) < 3.0
+                                    && Math.abs(label.getY() - physYClick) < 3.0) {
                                 clickedTextLabel = label;
                                 break;
                             }
                         }
                     }
                 }
-                
+
                 if (event.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                    // Ferme l'ancien menu contextuel avant d'en ouvrir un nouveau
+                    if (activeContextMenu != null) {
+                        activeContextMenu.hide();
+                        activeContextMenu = null;
+                    }
                     javafx.scene.control.ContextMenu contextMenu = new javafx.scene.control.ContextMenu();
-                    
+                    contextMenu.setAutoHide(true);
+
                     if (clickedPart != null) {
                         javafx.scene.control.MenuItem deleteItem = new javafx.scene.control.MenuItem("Delete");
                         final Component target = clickedPart;
@@ -536,9 +602,9 @@ public class EditorCanvas extends Canvas {
                             saveState();
                             draw(); // Force UI update
                         });
-                        
+
                         contextMenu.getItems().add(deleteItem);
-                        
+
                         javafx.scene.control.MenuItem propsItem = new javafx.scene.control.MenuItem("Properties...");
                         propsItem.setOnAction(e -> {
                             if (com.perf2gerber.App.showComponentPropertiesDialog(target)) {
@@ -547,21 +613,24 @@ public class EditorCanvas extends Canvas {
                             }
                         });
                         contextMenu.getItems().add(propsItem);
-                        
+
                         if (clickedPart instanceof FixedComponent) {
                             javafx.scene.control.MenuItem rotItem = new javafx.scene.control.MenuItem("Rotate 90°");
                             FixedComponent fc = (FixedComponent) clickedPart;
                             rotItem.setOnAction(e -> {
                                 fc.setRotation(fc.getRotation() + 90);
-                                if (fc.getRotation() >= 360) fc.setRotation(0);
+                                if (fc.getRotation() >= 360)
+                                    fc.setRotation(0);
                                 saveState();
                                 draw();
                             });
                             contextMenu.getItems().add(rotItem);
                         } else if (clickedPart instanceof StretchComponent) {
                             StretchComponent sc = (StretchComponent) clickedPart;
-                            if ("Capacitor (Polarized)".equals(sc.getType()) || "Diode".equals(sc.getType()) || "LED".equals(sc.getType())) {
-                                javafx.scene.control.MenuItem flipItem = new javafx.scene.control.MenuItem("Flip Direction (Rotate)");
+                            if ("Capacitor (Polarized)".equals(sc.getType()) || "Diode".equals(sc.getType())
+                                    || "LED".equals(sc.getType())) {
+                                javafx.scene.control.MenuItem flipItem = new javafx.scene.control.MenuItem(
+                                        "Flip Direction (Rotate)");
                                 flipItem.setOnAction(e -> {
                                     int tempX = sc.getStartX();
                                     int tempY = sc.getStartY();
@@ -580,14 +649,16 @@ public class EditorCanvas extends Canvas {
                         final com.perf2gerber.model.TextLabel targetText = clickedTextLabel;
                         deleteText.setOnAction(e -> {
                             board.getTextLabels().remove(targetText);
-                            saveState(); draw();
+                            saveState();
+                            draw();
                         });
                         contextMenu.getItems().add(deleteText);
-                        
+
                         javafx.scene.control.MenuItem propsText = new javafx.scene.control.MenuItem("Properties...");
                         propsText.setOnAction(e -> {
                             if (showTextPropertiesDialog(targetText)) {
-                                saveState(); draw();
+                                saveState();
+                                draw();
                             }
                         });
                         contextMenu.getItems().add(propsText);
@@ -602,8 +673,9 @@ public class EditorCanvas extends Canvas {
                                 draw();
                             });
                             contextMenu.getItems().add(deletePad);
-                            
-                            javafx.scene.control.MenuItem padProps = new javafx.scene.control.MenuItem("Pad Properties...");
+
+                            javafx.scene.control.MenuItem padProps = new javafx.scene.control.MenuItem(
+                                    "Pad Properties...");
                             final Pad targetPad = p;
                             padProps.setOnAction(e -> showSinglePadPropertiesDialog(targetPad));
                             contextMenu.getItems().add(padProps);
@@ -612,12 +684,14 @@ public class EditorCanvas extends Canvas {
                             double physX = (worldX - padding) / zoomLevel;
                             if (isViewFlipped)
                                 physX = (board.getColumns() - 1) * board.getGridSpacing() - physX;
-                            double physY = ((board.getRows() - 1) * board.getGridSpacing()) - ((worldY - padding) / zoomLevel);
+                            double physY = ((board.getRows() - 1) * board.getGridSpacing())
+                                    - ((worldY - padding) / zoomLevel);
 
                             double threshold = 1.2;
                             boolean hitTrace = false;
                             for (Trace trace : board.getTraces()) {
-                                if (trace.getLayer() != activeLayer) continue;
+                                if (trace.getLayer() != activeLayer)
+                                    continue;
                                 List<Trace.GridPoint> pts = trace.getSegments();
                                 for (int i = 0; i < pts.size() - 1; i++) {
                                     double ax = pts.get(i).x() * board.getGridSpacing();
@@ -625,14 +699,17 @@ public class EditorCanvas extends Canvas {
                                     double bx = pts.get(i + 1).x() * board.getGridSpacing();
                                     double by = pts.get(i + 1).y() * board.getGridSpacing();
                                     if (distToSegment(physX, physY, ax, ay, bx, by) < threshold) {
-                                        hitTrace = true; break;
+                                        hitTrace = true;
+                                        break;
                                     }
                                 }
-                                if (hitTrace) break;
+                                if (hitTrace)
+                                    break;
                             }
-                            
+
                             if (hitTrace) {
-                                javafx.scene.control.MenuItem deleteTrace = new javafx.scene.control.MenuItem("Delete Trace Segment");
+                                javafx.scene.control.MenuItem deleteTrace = new javafx.scene.control.MenuItem(
+                                        "Delete Trace Segment");
                                 deleteTrace.setOnAction(e -> {
                                     eraseSegmentAt(worldX, worldY);
                                     saveState();
@@ -640,23 +717,27 @@ public class EditorCanvas extends Canvas {
                                 });
                                 contextMenu.getItems().add(deleteTrace);
                             }
-                            
+
                             // Resize Board — only on empty board space (not on pads)
-                            javafx.scene.control.MenuItem resizeItem = new javafx.scene.control.MenuItem("Resize Board...");
+                            javafx.scene.control.MenuItem resizeItem = new javafx.scene.control.MenuItem(
+                                    "Resize Board...");
                             resizeItem.setOnAction(e -> showResizeBoardDialog());
                             contextMenu.getItems().add(resizeItem);
                         }
                     }
-                    
+
                     if (!contextMenu.getItems().isEmpty()) {
+                        activeContextMenu = contextMenu;
                         contextMenu.show(this, event.getScreenX() + 10, event.getScreenY() + 10);
                         return;
                     }
                 } else if (event.getButton() == javafx.scene.input.MouseButton.PRIMARY) {
                     if (clickedPart != null) {
                         draggedPart = clickedPart;
-                        if (hoverGridX != null) dragStartGridX = hoverGridX;
-                        if (hoverGridY != null) dragStartGridY = hoverGridY;
+                        if (hoverGridX != null)
+                            dragStartGridX = hoverGridX;
+                        if (hoverGridY != null)
+                            dragStartGridY = hoverGridY;
                         return;
                     }
                     if (clickedTextLabel != null && currentTool == Tool.POINTER) {
@@ -705,7 +786,8 @@ public class EditorCanvas extends Canvas {
                             try {
                                 double physX = hoverGridX * board.getGridSpacing();
                                 double physY = hoverGridY * board.getGridSpacing();
-                                return new com.perf2gerber.model.TextLabel(textF.getText(), Trace.Layer.TOP, physX, physY,
+                                return new com.perf2gerber.model.TextLabel(textF.getText(), Trace.Layer.TOP, physX,
+                                        physY,
                                         Double.parseDouble(sizeF.getText()), Double.parseDouble(rotF.getText()));
                             } catch (Exception e) {
                                 return null;
@@ -806,7 +888,7 @@ public class EditorCanvas extends Canvas {
                             activeStretchPart.setEndX(hoverGridX);
                             activeStretchPart.setEndY(hoverGridY);
                             board.addComponent(activeStretchPart);
-                            
+
                             isPlacingSecondPoint = false;
                             activeStretchPart = null;
                             setTool(Tool.POINTER);
@@ -1005,7 +1087,7 @@ public class EditorCanvas extends Canvas {
                 drawComponent(gc, c);
             }
         }
-        
+
         // 4.6 Dessin en temps réel d'un composant Stretch en cours de placement !
         if (activeStretchPart != null && isPlacingSecondPoint) {
             drawComponent(gc, activeStretchPart);
@@ -1067,6 +1149,10 @@ public class EditorCanvas extends Canvas {
     }
 
     private void drawPad(GraphicsContext gc, Pad pad) {
+        // En mode preview, on cache les pads non utilisés
+        if (hideUnusedPads && !pad.isUsed()) {
+            return;
+        }
         double screenX = getScreenX(pad.getGridX());
         double screenY = getScreenY(pad.getGridY());
         double copperRadiusPx = physicalToScreen(pad.getCopperDiameter()) / 2.0;
@@ -1082,14 +1168,16 @@ public class EditorCanvas extends Canvas {
 
         if (c instanceof FixedComponent) {
             FixedComponent fc = (FixedComponent) c;
-            boolean isTransistor = "Transistor".equals(fc.getType()) || (fc.getName() != null && fc.getName().startsWith("Q") && fc.getType() == null);
+            boolean isTransistor = "Transistor".equals(fc.getType())
+                    || (fc.getName() != null && fc.getName().startsWith("Q") && fc.getType() == null);
             double sx = getScreenX(fc.getStartX());
             double sy = getScreenY(fc.getStartY());
 
             gc.save();
             gc.translate(sx, sy);
-            if (fc.getRotation() != 0) gc.rotate(fc.getRotation());
-            
+            if (fc.getRotation() != 0)
+                gc.rotate(fc.getRotation());
+
             if (isTransistor) {
                 if (c.isHovered()) {
                     gc.setStroke(Color.YELLOW);
@@ -1101,18 +1189,18 @@ public class EditorCanvas extends Canvas {
                 gc.setLineWidth(1.0);
                 gc.fillRect(-gs * 1.4, -gs * 0.4, gs * 2.8, gs * 0.8);
                 gc.strokeRect(-gs * 1.4, -gs * 0.4, gs * 2.8, gs * 0.8);
-                
+
                 gc.setFill(Color.WHITE);
                 gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
                 gc.setTextBaseline(javafx.geometry.VPos.CENTER);
                 gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
-                
+
                 if (fc.isShowValue() && fc.getValue() != null) {
                     gc.fillText(fc.getValue(), 0, 0); // At center
                 } else if (fc.isShowName() && fc.getName() != null) {
                     gc.fillText(fc.getName(), 0, 0); // At center
                 }
-                
+
                 if (fc.getPinoutOrCount() != null) {
                     String pinout = fc.getPinoutOrCount();
                     for (int i = 0; i < pinout.length(); i++) {
@@ -1126,11 +1214,13 @@ public class EditorCanvas extends Canvas {
                     if (fc.getPinoutOrCount() != null) {
                         pinsPerSide = Integer.parseInt(fc.getPinoutOrCount()) / 2;
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                }
 
                 double bodyW = gs * 4;
                 double bodyH = gs * pinsPerSide;
-                // Anchor at 0,0 going LEFT and DOWN unrotated, so that -90 rotated goes RIGHT and DOWN
+                // Anchor at 0,0 going LEFT and DOWN unrotated, so that -90 rotated goes RIGHT
+                // and DOWN
                 double rectX = -gs * 3.5;
                 double rectY = -gs * 0.5;
 
@@ -1144,7 +1234,7 @@ public class EditorCanvas extends Canvas {
                 gc.setLineWidth(1.0);
                 gc.fillRect(rectX, rectY, bodyW, bodyH);
                 gc.strokeRect(rectX, rectY, bodyW, bodyH);
-                
+
                 // Draw pin 1 indicator notch
                 gc.strokeArc(-gs * 2.0, rectY - gs * 0.5, gs, gs, 180, 180, javafx.scene.shape.ArcType.OPEN);
 
@@ -1152,7 +1242,7 @@ public class EditorCanvas extends Canvas {
                 gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
                 gc.setTextBaseline(javafx.geometry.VPos.CENTER);
                 gc.setFont(new javafx.scene.text.Font("Monospaced", physicalToScreen(1.5)));
-                
+
                 if (fc.isShowValue() && fc.getValue() != null) {
                     gc.save();
                     gc.translate(rectX + bodyW / 2, bodyH / 2 - gs * 0.5);
@@ -1184,14 +1274,15 @@ public class EditorCanvas extends Canvas {
             double angle = Math.toDegrees(Math.atan2(y2 - y1, x2 - x1));
             gc.rotate(angle);
 
-            boolean isCapacitor = "Capacitor".equals(sc.getType()) || (sc.getName() != null && sc.getName().startsWith("C") && sc.getType() == null);
+            boolean isCapacitor = "Capacitor".equals(sc.getType())
+                    || (sc.getName() != null && sc.getName().startsWith("C") && sc.getType() == null);
             boolean isElectroCap = "Capacitor (Polarized)".equals(sc.getType());
             boolean isDiode = "Diode".equals(sc.getType());
             boolean isLED = "LED".equals(sc.getType());
-            
+
             double leadPaddingPx = physicalToScreen(board.getGridSpacing() * 0.4);
             double halfW = 0;
-            
+
             if (isCapacitor) {
                 halfW = Math.max(physicalToScreen(board.getGridSpacing() * 0.6), distPx - leadPaddingPx) / 2.0;
             } else if (isElectroCap || isLED) {
@@ -1201,7 +1292,7 @@ public class EditorCanvas extends Canvas {
             } else {
                 halfW = physicalToScreen(board.getGridSpacing() * 1.5) / 2.0;
             }
-            
+
             // Draw Leads stopping at the body edge
             gc.setStroke(Color.web("#CCCCCC"));
             gc.setLineWidth(physicalToScreen(0.5));
@@ -1216,12 +1307,12 @@ public class EditorCanvas extends Canvas {
                     gc.setLineWidth(3.0);
                     gc.strokeOval(-capW / 2, -capH / 2, capW, capH);
                 }
-                gc.setFill(Color.web("#2ECC71", 0.8)); // Green, -10% opacity
+                gc.setFill(capacitorColor);
                 gc.fillOval(-capW / 2, -capH / 2, capW, capH);
                 gc.setStroke(Color.WHITE);
                 gc.setLineWidth(1.0);
                 gc.strokeOval(-capW / 2, -capH / 2, capW, capH);
-                
+
             } else if (isElectroCap) {
                 double capDiam = physicalToScreen(board.getGridSpacing() * 1.6);
                 if (c.isHovered()) {
@@ -1229,24 +1320,23 @@ public class EditorCanvas extends Canvas {
                     gc.setLineWidth(3.0);
                     gc.strokeOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
                 }
-                // Black half (Pin 1 side)
-                gc.setFill(Color.web("#222222", 0.9));
+                gc.setFill(electroCapColorA);
                 gc.fillArc(-capDiam / 2, -capDiam / 2, capDiam, capDiam, 90, 180, javafx.scene.shape.ArcType.ROUND);
-                // Grey half (Pin 2 side)
-                gc.setFill(Color.web("#888888", 0.9));
+                gc.setFill(electroCapColorB);
                 gc.fillArc(-capDiam / 2, -capDiam / 2, capDiam, capDiam, 270, 180, javafx.scene.shape.ArcType.ROUND);
-                
+
                 gc.setStroke(Color.WHITE);
                 gc.setLineWidth(1.0);
                 gc.strokeOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
-                
-                // Draw a '+' over the black section, offset to the top-left so the central text doesn't hide it
+
+                // Draw a '+' over the black section, offset to the top-left so the central text
+                // doesn't hide it
                 gc.setFill(Color.WHITE);
                 gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
                 gc.setTextBaseline(javafx.geometry.VPos.CENTER);
                 gc.setFont(new javafx.scene.text.Font("SansSerif", physicalToScreen(board.getGridSpacing() * 0.5)));
                 gc.fillText("+", -capDiam / 3.2, -capDiam / 3.2);
-                
+
             } else if (isDiode) {
                 double bodyW = physicalToScreen(board.getGridSpacing() * 1.5);
                 double bodyH = physicalToScreen(board.getGridSpacing() * 0.8);
@@ -1257,16 +1347,17 @@ public class EditorCanvas extends Canvas {
                 }
                 gc.setFill(Color.web("#E74C3C", 0.8)); // Red Glass Body
                 gc.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
-                
+
                 // Dark Band (Cathode) on the EndX side
                 double bandW = bodyW * 0.2;
                 gc.setFill(Color.web("#222222", 0.9));
-                gc.fillRect(bodyW / 2 - bandW - physicalToScreen(board.getGridSpacing()*0.1), -bodyH / 2, bandW, bodyH);
-                
+                gc.fillRect(bodyW / 2 - bandW - physicalToScreen(board.getGridSpacing() * 0.1), -bodyH / 2, bandW,
+                        bodyH);
+
                 gc.setStroke(Color.WHITE);
                 gc.setLineWidth(1.0);
                 gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
-                
+
             } else if (isLED) {
                 double capDiam = physicalToScreen(board.getGridSpacing() * 1.6);
                 if (c.isHovered()) {
@@ -1274,28 +1365,36 @@ public class EditorCanvas extends Canvas {
                     gc.setLineWidth(3.0);
                     gc.strokeOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
                 }
-                
+
                 String colorName = sc.getColor() != null ? sc.getColor() : "Red";
                 Color ledColor = Color.web("#E74C3C", 0.8); // Default Red
                 switch (colorName) {
-                    case "Green": ledColor = Color.web("#2ECC71", 0.8); break;
-                    case "Blue": ledColor = Color.web("#3498DB", 0.8); break;
-                    case "Yellow": ledColor = Color.web("#F1C40F", 0.8); break;
-                    case "White": ledColor = Color.web("#ECF0F1", 0.8); break;
+                    case "Green":
+                        ledColor = Color.web("#2ECC71", 0.8);
+                        break;
+                    case "Blue":
+                        ledColor = Color.web("#3498DB", 0.8);
+                        break;
+                    case "Yellow":
+                        ledColor = Color.web("#F1C40F", 0.8);
+                        break;
+                    case "White":
+                        ledColor = Color.web("#ECF0F1", 0.8);
+                        break;
                 }
-                
+
                 // Base LED Body
                 gc.setFill(ledColor);
                 gc.fillOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
-                
+
                 // Mask right edge for cathode flat side
                 gc.setFill(Color.web("#222222", 0.5));
-                gc.fillRect(capDiam/3, -capDiam/2, capDiam/6, capDiam);
-                
+                gc.fillRect(capDiam / 3, -capDiam / 2, capDiam / 6, capDiam);
+
                 gc.setStroke(Color.WHITE);
                 gc.setLineWidth(1.0);
                 gc.strokeOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
-                
+
                 gc.setFill(Color.WHITE);
                 gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
                 gc.setTextBaseline(javafx.geometry.VPos.CENTER);
@@ -1309,7 +1408,7 @@ public class EditorCanvas extends Canvas {
                     gc.setLineWidth(3.0);
                     gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
                 }
-                gc.setFill(Color.web("#ADD8E6", 0.8)); // Pale Blue, -10% opacity
+                gc.setFill(resistorColor);
                 gc.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
                 gc.setStroke(Color.WHITE);
                 gc.setLineWidth(1.0);
