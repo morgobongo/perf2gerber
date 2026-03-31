@@ -23,7 +23,8 @@ public class StretchComponent extends Component {
         clone.setShowName(this.isShowName());
         clone.setShowValue(this.isShowValue());
         clone.setType(this.getType());
-        clone.setEndX(this.endX);
+        clone.setColor(this.getColor());
+        clone.setEndX(this.getEndX());
         clone.setEndY(this.endY);
         return clone;
     }
@@ -45,9 +46,9 @@ public class StretchComponent extends Component {
         // Capacitors are 1.2 by 0.9 cells rounded
         boolean isCapacitor = "Capacitor".equals(getType()) || (getName() != null && getName().startsWith("C") && getType() == null);
         boolean isElectroCap = "Capacitor (Polarized)".equals(getType());
-        boolean isDiode = "Diode".equals(getType());
+        boolean isLED = "LED".equals(getType());
         
-        if (isElectroCap) {
+        if (isElectroCap || isLED) {
             return (rx >= -0.8 && rx <= 0.8) && (ry >= -0.8 && ry <= 0.8);
         } else if (isCapacitor) {
             return (rx >= -0.6 && rx <= 0.6) && (ry >= -0.45 && ry <= 0.45);

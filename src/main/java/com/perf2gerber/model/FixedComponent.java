@@ -19,6 +19,7 @@ public class FixedComponent extends Component {
         clone.setShowName(this.isShowName());
         clone.setShowValue(this.isShowValue());
         clone.setType(this.getType());
+        clone.setColor(this.getColor());
         clone.setPinoutOrCount(this.pinoutOrCount);
         return clone;
     }

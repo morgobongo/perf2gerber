@@ -12,6 +12,7 @@ public abstract class Component {
     private boolean showName = false;
     private boolean showValue = true;
     private String type;
+    private String color = "Red";
 
     // Phase 6 UI fields (not serialized)
     private transient boolean isHovered = false;
@@ -31,6 +32,9 @@ public abstract class Component {
     
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+    
+    public String getColor() { return color; }
+    public void setColor(String color) { this.color = color; }
     
     public int getStartX() { return startX; }
     public void setStartX(int startX) { this.startX = startX; }

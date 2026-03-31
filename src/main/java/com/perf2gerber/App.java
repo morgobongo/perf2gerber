@@ -36,7 +36,7 @@ public class App extends Application {
     private ToggleButton btnWire;
     private ToggleButton btnText;
     private ToggleButton btnErase;
-    private ComboBox<String> partsBox;
+    private MenuButton partsBox;
     private ToggleGroup toolGroup;
     // NOUVEAU : Mémoire des touches simples et Préférences persistantes
     private java.util.Map<EditorCanvas.Tool, KeyCode> shortcuts = new java.util.EnumMap<>(EditorCanvas.Tool.class);
@@ -325,15 +325,16 @@ public class App extends Application {
         btnErase.setToggleGroup(toolGroup);
         btnText.setToggleGroup(toolGroup);
 
-        partsBox = new ComboBox<>();
-        partsBox.getItems().addAll("Resistor", "Capacitor", "Capacitor (Polarized)", "Diode", "Transistor", "IC");
-        partsBox.setPromptText("Parts...");
-        partsBox.setOnAction(e -> {
-            String selection = partsBox.getValue();
-            if (selection != null) {
-                openConfigDialogForPart(selection);
-            }
-        });
+        partsBox = new MenuButton("Parts...");
+        String[] parts = {"Resistor", "Capacitor", "Capacitor (Polarized)", "Diode", "LED", "Transistor", "IC"};
+        for (String part : parts) {
+            MenuItem item = new MenuItem(part);
+            item.setOnAction(e -> {
+                partsBox.setText(part); // Update the label to show what is selected
+                openConfigDialogForPart(part);
+            });
+            partsBox.getItems().add(item);
+        }
 
         toolGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (oldVal != null) {
@@ -415,6 +416,21 @@ public class App extends Application {
     }
 
     private void openConfigDialogForPart(String type) {
+        if (!type.equals("IC")) {
+            if (type.equals("Transistor")) {
+                FixedComponent fc = new FixedComponent();
+                fc.setType(type);
+                fc.setPinoutOrCount("EBC");
+                canvas.setPendingPart(fc);
+            } else {
+                StretchComponent sc = new StretchComponent();
+                sc.setType(type);
+                if (type.equals("LED")) sc.setColor("Red"); // Default color
+                canvas.setPendingPart(sc);
+            }
+            return;
+        }
+
         Dialog<Component> configDialog = new Dialog<>();
         configDialog.setTitle("Configure " + type);
         configDialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
@@ -427,31 +443,9 @@ public class App extends Application {
         TextField paramField = new TextField();
         Label paramLabel = new Label();
         
-        if (type.equals("Transistor")) {
-            nameField.setText("Q?");
-            paramLabel.setText("Pinout (e.g. CBE):");
-            paramField.setText("CBE");
-        } else if (type.equals("IC")) {
-            nameField.setText("U?");
-            paramLabel.setText("Pin Count:");
-            paramField.setText("8");
-        } else if (type.equals("Resistor")) {
-            nameField.setText("R?");
-            paramLabel.setText("Value:");
-            paramField.setText("10k");
-        } else if (type.equals("Capacitor")) {
-            nameField.setText("C?");
-            paramLabel.setText("Value:");
-            paramField.setText("100nF");
-        } else if (type.equals("Capacitor (Polarized)")) {
-            nameField.setText("C?");
-            paramLabel.setText("Value:");
-            paramField.setText("100uF");
-        } else if (type.equals("Diode")) {
-            nameField.setText("D?");
-            paramLabel.setText("Value:");
-            paramField.setText("1N4148");
-        }
+        nameField.setPromptText("U?");
+        paramLabel.setText("Pin Count:");
+        paramField.setPromptText("8");
         
         grid.add(new Label("Name:"), 0, 0);
         grid.add(nameField, 1, 0);
@@ -463,20 +457,12 @@ public class App extends Application {
         
         configDialog.setResultConverter(dialogButton -> {
             if (dialogButton == ButtonType.OK) {
-                if (type.equals("Transistor") || type.equals("IC")) {
-                    FixedComponent fc = new FixedComponent();
-                    fc.setType(type);
-                    fc.setName(nameField.getText());
-                    fc.setPinoutOrCount(paramField.getText());
-                    if (type.equals("IC")) fc.setRotation(-90.0);
-                    return fc;
-                } else {
-                    StretchComponent sc = new StretchComponent();
-                    sc.setType(type);
-                    sc.setName(nameField.getText());
-                    sc.setValue(paramField.getText());
-                    return sc;
-                }
+                FixedComponent fc = new FixedComponent();
+                fc.setType("IC");
+                fc.setName(nameField.getText());
+                fc.setPinoutOrCount(paramField.getText());
+                fc.setRotation(-90.0);
+                return fc;
             }
             return null;
         });
@@ -835,6 +821,75 @@ public class App extends Application {
         });
 
         return field;
+    }
+
+    public static boolean showComponentPropertiesDialog(Component c) {
+        Dialog<Boolean> configDialog = new Dialog<>();
+        configDialog.setTitle("Properties: " + (c.getType() != null ? c.getType() : "Component"));
+        configDialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        
+        TextField nameField = new TextField(c.getName() != null ? c.getName() : "");
+        TextField paramField = new TextField();
+        
+        String paramLabelStr = "Value:";
+        if (c instanceof FixedComponent) {
+            if ("IC".equals(c.getType())) paramLabelStr = "Pin Count:";
+            else if ("Transistor".equals(c.getType())) paramLabelStr = "Pinout (e.g. CBE):";
+            paramField.setText(((FixedComponent) c).getPinoutOrCount() != null ? ((FixedComponent) c).getPinoutOrCount() : "");
+        } else {
+            paramField.setText(c.getValue() != null ? c.getValue() : "");
+        }
+        
+        javafx.scene.control.CheckBox chkShowName = new javafx.scene.control.CheckBox("Display Name");
+        chkShowName.setSelected(c.isShowName());
+        
+        javafx.scene.control.CheckBox chkShowValue = new javafx.scene.control.CheckBox("Display Value");
+        chkShowValue.setSelected(c.isShowValue());
+        
+        javafx.scene.control.ComboBox<String> colorBox = new javafx.scene.control.ComboBox<>();
+        colorBox.getItems().addAll("Red", "Green", "Blue", "Yellow", "White");
+        colorBox.setValue(c.getColor() != null ? c.getColor() : "Red");
+        
+        grid.add(new Label("Name:"), 0, 0);
+        grid.add(nameField, 1, 0);
+        grid.add(new Label(paramLabelStr), 0, 1);
+        grid.add(paramField, 1, 1);
+        grid.add(chkShowName, 1, 2);
+        grid.add(chkShowValue, 1, 3);
+        
+        if ("LED".equals(c.getType())) {
+            grid.add(new Label("Color:"), 0, 4);
+            grid.add(colorBox, 1, 4);
+        }
+        
+        configDialog.getDialogPane().setContent(grid);
+        Platform.runLater(nameField::requestFocus);
+        
+        configDialog.setResultConverter(dialogButton -> {
+            if (dialogButton == ButtonType.OK) {
+                String newName = nameField.getText();
+                c.setName(newName.trim().isEmpty() ? null : newName);
+                if (c instanceof FixedComponent) {
+                    ((FixedComponent) c).setPinoutOrCount(paramField.getText());
+                } else {
+                    String newVal = paramField.getText();
+                    c.setValue(newVal.trim().isEmpty() ? null : newVal);
+                }
+                c.setShowName(chkShowName.isSelected());
+                c.setShowValue(chkShowValue.isSelected());
+                if ("LED".equals(c.getType())) {
+                    c.setColor(colorBox.getValue());
+                }
+                return true;
+            }
+            return false;
+        });
+        
+        return configDialog.showAndWait().orElse(false);
     }
 
     public static void main(String[] args) {
