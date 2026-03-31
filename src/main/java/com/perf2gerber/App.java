@@ -326,7 +326,7 @@ public class App extends Application {
         btnText.setToggleGroup(toolGroup);
 
         partsBox = new ComboBox<>();
-        partsBox.getItems().addAll("Transistor", "IC", "Resistor", "Capacitor");
+        partsBox.getItems().addAll("Resistor", "Capacitor", "Capacitor (Polarized)", "Diode", "Transistor", "IC");
         partsBox.setPromptText("Parts...");
         partsBox.setOnAction(e -> {
             String selection = partsBox.getValue();
@@ -443,6 +443,14 @@ public class App extends Application {
             nameField.setText("C?");
             paramLabel.setText("Value:");
             paramField.setText("100nF");
+        } else if (type.equals("Capacitor (Polarized)")) {
+            nameField.setText("C?");
+            paramLabel.setText("Value:");
+            paramField.setText("100uF");
+        } else if (type.equals("Diode")) {
+            nameField.setText("D?");
+            paramLabel.setText("Value:");
+            paramField.setText("1N4148");
         }
         
         grid.add(new Label("Name:"), 0, 0);
@@ -457,12 +465,14 @@ public class App extends Application {
             if (dialogButton == ButtonType.OK) {
                 if (type.equals("Transistor") || type.equals("IC")) {
                     FixedComponent fc = new FixedComponent();
+                    fc.setType(type);
                     fc.setName(nameField.getText());
                     fc.setPinoutOrCount(paramField.getText());
                     if (type.equals("IC")) fc.setRotation(-90.0);
                     return fc;
                 } else {
                     StretchComponent sc = new StretchComponent();
+                    sc.setType(type);
                     sc.setName(nameField.getText());
                     sc.setValue(paramField.getText());
                     return sc;

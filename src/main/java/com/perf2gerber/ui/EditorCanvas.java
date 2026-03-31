@@ -954,7 +954,10 @@ public class EditorCanvas extends Canvas {
             double angle = Math.toDegrees(Math.atan2(y2 - y1, x2 - x1));
             gc.rotate(angle);
 
-            boolean isCapacitor = sc.getName() != null && sc.getName().startsWith("C");
+            boolean isCapacitor = "Capacitor".equals(sc.getType()) || (sc.getName() != null && sc.getName().startsWith("C") && sc.getType() == null);
+            boolean isElectroCap = "Capacitor (Polarized)".equals(sc.getType());
+            boolean isDiode = "Diode".equals(sc.getType());
+
             if (isCapacitor) {
                 double distPx = Math.hypot(x2 - x1, y2 - y1);
                 double leadPaddingPx = physicalToScreen(board.getGridSpacing() * 0.4);
@@ -970,6 +973,52 @@ public class EditorCanvas extends Canvas {
                 gc.setStroke(Color.WHITE);
                 gc.setLineWidth(1.0);
                 gc.strokeOval(-capW / 2, -capH / 2, capW, capH);
+                
+            } else if (isElectroCap) {
+                double capDiam = physicalToScreen(board.getGridSpacing() * 1.6);
+                if (c.isHovered()) {
+                    gc.setStroke(Color.YELLOW);
+                    gc.setLineWidth(3.0);
+                    gc.strokeOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
+                }
+                // Black half (Pin 1 side)
+                gc.setFill(Color.web("#222222", 0.9));
+                gc.fillArc(-capDiam / 2, -capDiam / 2, capDiam, capDiam, 90, 180, javafx.scene.shape.ArcType.ROUND);
+                // Grey half (Pin 2 side)
+                gc.setFill(Color.web("#888888", 0.9));
+                gc.fillArc(-capDiam / 2, -capDiam / 2, capDiam, capDiam, 270, 180, javafx.scene.shape.ArcType.ROUND);
+                
+                gc.setStroke(Color.WHITE);
+                gc.setLineWidth(1.0);
+                gc.strokeOval(-capDiam / 2, -capDiam / 2, capDiam, capDiam);
+                
+                // Draw a '+' over the black section, offset to the top-left so the central text doesn't hide it
+                gc.setFill(Color.WHITE);
+                gc.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+                gc.setTextBaseline(javafx.geometry.VPos.CENTER);
+                gc.setFont(new javafx.scene.text.Font("SansSerif", physicalToScreen(board.getGridSpacing() * 0.5)));
+                gc.fillText("+", -capDiam / 3.2, -capDiam / 3.2);
+                
+            } else if (isDiode) {
+                double bodyW = physicalToScreen(board.getGridSpacing() * 1.5);
+                double bodyH = physicalToScreen(board.getGridSpacing() * 0.8);
+                if (c.isHovered()) {
+                    gc.setStroke(Color.YELLOW);
+                    gc.setLineWidth(3.0);
+                    gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+                }
+                gc.setFill(Color.web("#E74C3C", 0.8)); // Red Glass Body
+                gc.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+                
+                // Dark Band (Cathode) on the EndX side
+                double bandW = bodyW * 0.2;
+                gc.setFill(Color.web("#222222", 0.9));
+                gc.fillRect(bodyW / 2 - bandW - physicalToScreen(board.getGridSpacing()*0.1), -bodyH / 2, bandW, bodyH);
+                
+                gc.setStroke(Color.WHITE);
+                gc.setLineWidth(1.0);
+                gc.strokeRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+                
             } else {
                 double bodyW = physicalToScreen(board.getGridSpacing() * 1.5);
                 double bodyH = physicalToScreen(board.getGridSpacing() * 0.8);

@@ -18,6 +18,7 @@ public class FixedComponent extends Component {
         clone.setRotation(this.getRotation());
         clone.setShowName(this.isShowName());
         clone.setShowValue(this.isShowValue());
+        clone.setType(this.getType());
         clone.setPinoutOrCount(this.pinoutOrCount);
         return clone;
     }

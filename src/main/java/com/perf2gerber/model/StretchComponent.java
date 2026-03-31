@@ -22,6 +22,7 @@ public class StretchComponent extends Component {
         clone.setRotation(this.getRotation());
         clone.setShowName(this.isShowName());
         clone.setShowValue(this.isShowValue());
+        clone.setType(this.getType());
         clone.setEndX(this.endX);
         clone.setEndY(this.endY);
         return clone;
@@ -42,8 +43,13 @@ public class StretchComponent extends Component {
         
         // Stretch bodies are 1.5 grid cells long by 0.8 wide (Resistor)
         // Capacitors are 1.2 by 0.9 cells rounded
-        boolean isCapacitor = getName() != null && getName().startsWith("C");
-        if (isCapacitor) {
+        boolean isCapacitor = "Capacitor".equals(getType()) || (getName() != null && getName().startsWith("C") && getType() == null);
+        boolean isElectroCap = "Capacitor (Polarized)".equals(getType());
+        boolean isDiode = "Diode".equals(getType());
+        
+        if (isElectroCap) {
+            return (rx >= -0.8 && rx <= 0.8) && (ry >= -0.8 && ry <= 0.8);
+        } else if (isCapacitor) {
             return (rx >= -0.6 && rx <= 0.6) && (ry >= -0.45 && ry <= 0.45);
         } else {
             return (rx >= -0.75 && rx <= 0.75) && (ry >= -0.4 && ry <= 0.4);
