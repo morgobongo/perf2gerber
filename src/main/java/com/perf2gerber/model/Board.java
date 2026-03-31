@@ -106,13 +106,26 @@ public class Board {
      * @param newCopperDiameterMm Le nouveau diamètre en millimètres (ex: 2.5)
      */
     public void setGlobalPadCopperDiameter(double newCopperDiameterMm) {
-        this.defaultCopperDiameter = newCopperDiameterMm; // <-- Correction pour les futurs agrandissements du board !
+        this.defaultCopperDiameter = newCopperDiameterMm;
 
         for (int x = 0; x < columns; x++) {
             for (int y = 0; y < rows; y++) {
                 Pad pad = getPad(x, y);
                 if (pad != null) {
                     pad.setCopperDiameter(newCopperDiameterMm);
+                }
+            }
+        }
+    }
+
+    public void setGlobalHoleDiameter(double newHoleDiameterMm) {
+        this.defaultHoleDiameter = newHoleDiameterMm;
+
+        for (int x = 0; x < columns; x++) {
+            for (int y = 0; y < rows; y++) {
+                Pad pad = getPad(x, y);
+                if (pad != null) {
+                    pad.setHoleDiameter(newHoleDiameterMm);
                 }
             }
         }

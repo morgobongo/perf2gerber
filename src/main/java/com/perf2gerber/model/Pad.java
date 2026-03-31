@@ -9,7 +9,7 @@ public class Pad {
     private final int gridX;
     private final int gridY;
     private double copperDiameter;
-    private final double holeDiameter;
+    private double holeDiameter;
     private boolean isUsed;
 
     /**
@@ -88,6 +88,10 @@ public class Pad {
 
     public void setCopperDiameter(double copperDiameter) {
         this.copperDiameter = copperDiameter;
+    }
+
+    public void setHoleDiameter(double holeDiameter) {
+        this.holeDiameter = holeDiameter;
     }
 
 }

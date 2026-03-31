@@ -166,6 +166,124 @@ public class EditorCanvas extends Canvas {
         return dialog.showAndWait().orElse(false);
     }
 
+    private void showResizeBoardDialog() {
+        javafx.scene.control.Dialog<int[]> dialog = new javafx.scene.control.Dialog<>();
+        dialog.setTitle("Resize Board");
+        dialog.getDialogPane().getButtonTypes().addAll(
+                javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+
+        javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+
+        javafx.scene.control.TextField countField = new javafx.scene.control.TextField("2");
+        countField.setPrefWidth(80);
+
+        javafx.scene.control.CheckBox chkLeft = new javafx.scene.control.CheckBox("Left");
+        javafx.scene.control.CheckBox chkRight = new javafx.scene.control.CheckBox("Right");
+        javafx.scene.control.CheckBox chkTop = new javafx.scene.control.CheckBox("Top");
+        javafx.scene.control.CheckBox chkBottom = new javafx.scene.control.CheckBox("Bottom");
+        javafx.scene.control.CheckBox chkProportional = new javafx.scene.control.CheckBox("Proportional (all sides)");
+
+        chkProportional.setOnAction(e -> {
+            boolean prop = chkProportional.isSelected();
+            chkLeft.setDisable(prop);
+            chkRight.setDisable(prop);
+            chkTop.setDisable(prop);
+            chkBottom.setDisable(prop);
+            if (prop) { chkLeft.setSelected(true); chkRight.setSelected(true); chkTop.setSelected(true); chkBottom.setSelected(true); }
+        });
+
+        grid.add(new javafx.scene.control.Label("Rows/Cols to add:"), 0, 0);
+        grid.add(countField, 1, 0);
+        grid.add(chkLeft, 0, 1);
+        grid.add(chkRight, 1, 1);
+        grid.add(chkTop, 0, 2);
+        grid.add(chkBottom, 1, 2);
+        grid.add(chkProportional, 0, 3, 2, 1);
+
+        javafx.scene.control.Label infoLabel = new javafx.scene.control.Label(
+                "Current: " + board.getColumns() + " cols × " + board.getRows() + " rows");
+        infoLabel.setStyle("-fx-font-style: italic; -fx-text-fill: gray;");
+        grid.add(infoLabel, 0, 4, 2, 1);
+
+        dialog.getDialogPane().setContent(grid);
+        javafx.application.Platform.runLater(countField::requestFocus);
+
+        dialog.setResultConverter(btn -> {
+            if (btn == javafx.scene.control.ButtonType.OK) {
+                try {
+                    int count = Integer.parseInt(countField.getText());
+                    int left = chkLeft.isSelected() ? count : 0;
+                    int right = chkRight.isSelected() ? count : 0;
+                    int bottom = chkBottom.isSelected() ? count : 0;
+                    int top = chkTop.isSelected() ? count : 0;
+                    return new int[]{left, right, bottom, top};
+                } catch (NumberFormatException ex) {
+                    return null;
+                }
+            }
+            return null;
+        });
+
+        dialog.showAndWait().ifPresent(vals -> {
+            board.resizeBoard(vals[0], vals[1], vals[2], vals[3]);
+            updateSize();
+            saveState();
+            draw();
+            if (onBoardReplaced != null) onBoardReplaced.accept(board);
+        });
+    }
+
+    private void showSinglePadPropertiesDialog(Pad targetPad) {
+        javafx.scene.control.Dialog<double[]> dialog = new javafx.scene.control.Dialog<>();
+        dialog.setTitle("Pad Properties");
+        dialog.getDialogPane().getButtonTypes().addAll(
+                javafx.scene.control.ButtonType.OK, javafx.scene.control.ButtonType.CANCEL);
+
+        javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+
+        javafx.scene.control.TextField copperField = new javafx.scene.control.TextField(
+                String.valueOf(targetPad.getCopperDiameter()));
+        javafx.scene.control.TextField holeField = new javafx.scene.control.TextField(
+                String.valueOf(targetPad.getHoleDiameter()));
+
+        grid.add(new javafx.scene.control.Label("Pad Copper Ø (mm):"), 0, 0);
+        grid.add(copperField, 1, 0);
+        grid.add(new javafx.scene.control.Label("Drill Hole Ø (mm):"), 0, 1);
+        grid.add(holeField, 1, 1);
+
+        javafx.scene.control.Label noteLabel = new javafx.scene.control.Label(
+                "Pad [" + targetPad.getGridX() + ", " + targetPad.getGridY() + "] — affects this pad only.");
+        noteLabel.setStyle("-fx-font-style: italic; -fx-text-fill: gray;");
+        grid.add(noteLabel, 0, 2, 2, 1);
+
+        dialog.getDialogPane().setContent(grid);
+        javafx.application.Platform.runLater(copperField::requestFocus);
+
+        dialog.setResultConverter(btn -> {
+            if (btn == javafx.scene.control.ButtonType.OK) {
+                try {
+                    double copper = Double.parseDouble(copperField.getText());
+                    double hole = Double.parseDouble(holeField.getText());
+                    return new double[]{copper, hole};
+                } catch (NumberFormatException ex) {
+                    return null;
+                }
+            }
+            return null;
+        });
+
+        dialog.showAndWait().ifPresent(vals -> {
+            targetPad.setCopperDiameter(vals[0]);
+            targetPad.setHoleDiameter(vals[1]);
+            saveState();
+            draw();
+        });
+    }
+
     public void setOnBoardReplaced(java.util.function.Consumer<Board> listener) {
         this.onBoardReplaced = listener;
     }
@@ -476,14 +594,21 @@ public class EditorCanvas extends Canvas {
                     } else if (hoverGridX != null && hoverGridY != null) {
                         Pad p = board.getPad(hoverGridX, hoverGridY);
                         if (p != null && p.isUsed()) {
-                            javafx.scene.control.MenuItem deletePad = new javafx.scene.control.MenuItem("Delete Pad Segment");
+                            // --- PAD context menu: Delete + per-pad Properties ---
+                            javafx.scene.control.MenuItem deletePad = new javafx.scene.control.MenuItem("Delete Pad");
                             deletePad.setOnAction(e -> {
                                 p.deactivate();
                                 saveState();
                                 draw();
                             });
                             contextMenu.getItems().add(deletePad);
+                            
+                            javafx.scene.control.MenuItem padProps = new javafx.scene.control.MenuItem("Pad Properties...");
+                            final Pad targetPad = p;
+                            padProps.setOnAction(e -> showSinglePadPropertiesDialog(targetPad));
+                            contextMenu.getItems().add(padProps);
                         } else {
+                            // --- EMPTY SPACE / TRACE context ---
                             double physX = (worldX - padding) / zoomLevel;
                             if (isViewFlipped)
                                 physX = (board.getColumns() - 1) * board.getGridSpacing() - physX;
@@ -515,6 +640,11 @@ public class EditorCanvas extends Canvas {
                                 });
                                 contextMenu.getItems().add(deleteTrace);
                             }
+                            
+                            // Resize Board — only on empty board space (not on pads)
+                            javafx.scene.control.MenuItem resizeItem = new javafx.scene.control.MenuItem("Resize Board...");
+                            resizeItem.setOnAction(e -> showResizeBoardDialog());
+                            contextMenu.getItems().add(resizeItem);
                         }
                     }
                     
