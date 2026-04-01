@@ -37,7 +37,8 @@ public class FixedComponent extends Component {
         double rx = vx * Math.cos(rad) - vy * Math.sin(rad);
         double ry = vx * Math.sin(rad) + vy * Math.cos(rad);
         
-        boolean isTransistor = getName() != null && getName().startsWith("Q");
+        boolean isTransistor = "Transistor".equals(getType())
+                || (getName() != null && getName().startsWith("Q") && getType() == null);
         if (isTransistor) {
             return (rx >= -1.4 && rx <= 1.4) && (ry >= -0.4 && ry <= 0.4);
         } else {

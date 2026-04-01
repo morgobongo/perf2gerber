@@ -1,5 +1,8 @@
 package com.perf2gerber;
 
+import java.io.PrintWriter;
+import java.util.*;
+
 import com.perf2gerber.model.Board;
 import com.perf2gerber.model.Trace;
 import com.perf2gerber.model.Component;
@@ -59,6 +62,7 @@ public class App extends Application {
     private Label lblCoords;
 
     private java.io.File currentFile = null;
+    private java.io.File lastBomFile = null;
 
     @Override
     public void start(Stage primaryStage) {
@@ -227,14 +231,23 @@ public class App extends Application {
         MenuItem itemSaveAs = new MenuItem("Save As...");
         SeparatorMenuItem sep = new SeparatorMenuItem();
         MenuItem itemExport = new MenuItem("Export to Gerber...");
+        SeparatorMenuItem sep2 = new SeparatorMenuItem();
+        MenuItem itemBom = new MenuItem("Generate BOM...");
+        MenuItem itemUpdateBom = new MenuItem("Update BOM");
+        itemUpdateBom.setDisable(true);
 
         itemNew.setOnAction(e -> startNewProject());
         itemOpen.setOnAction(e -> openProject());
         itemSave.setOnAction(e -> saveProject());
         itemSaveAs.setOnAction(e -> saveProjectAs());
         itemExport.setOnAction(e -> exportToGerber());
+        itemBom.setOnAction(e -> {
+            generateBom();
+            if (lastBomFile != null) itemUpdateBom.setDisable(false);
+        });
+        itemUpdateBom.setOnAction(e -> updateBom());
 
-        menuFile.getItems().addAll(itemNew, itemOpen, itemSave, itemSaveAs, sep, itemExport);
+        menuFile.getItems().addAll(itemNew, itemOpen, itemSave, itemSaveAs, sep, itemExport, sep2, itemBom, itemUpdateBom);
 
         Menu menuEdit = new Menu("Edit");
         MenuItem itemUndo = new MenuItem("Undo");
@@ -987,6 +1000,197 @@ public class App extends Application {
         });
 
         return configDialog.showAndWait().orElse(false);
+    }
+
+    // --- BOM GENERATION ---
+
+    private String buildBomContent() {
+        List<Component> components = board.getComponents();
+        if (components == null || components.isEmpty()) {
+            return null;
+        }
+
+        // Group components by type, then sort within each group by natural name order
+        Map<String, List<Component>> grouped = new LinkedHashMap<>();
+
+        // Define the ordering of groups
+        String[] groupOrder = { "R", "C", "D", "LED", "Q", "U" };
+        for (String g : groupOrder) {
+            grouped.put(g, new ArrayList<>());
+        }
+        grouped.put("Other", new ArrayList<>());
+
+        for (Component c : components) {
+            String group = resolveGroup(c);
+            grouped.computeIfAbsent(group, k -> new ArrayList<>()).add(c);
+        }
+
+        // Natural sort comparator for component names (R1, R2, R10 instead of R1, R10, R2)
+        Comparator<Component> naturalSort = (a, b) -> {
+            String na = a.getName() != null ? a.getName() : "";
+            String nb = b.getName() != null ? b.getName() : "";
+            return compareNatural(na, nb);
+        };
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("=================================================\n");
+        sb.append("  BILL OF MATERIALS (BOM) — Perf2Gerber\n");
+        sb.append("=================================================\n");
+
+        if (currentFile != null) {
+            String projName = currentFile.getName().replace(".json", "");
+            sb.append("  Project: ").append(projName).append("\n");
+        }
+        sb.append("  Generated: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
+        sb.append("=================================================\n\n");
+
+        int totalCount = 0;
+
+        for (Map.Entry<String, List<Component>> entry : grouped.entrySet()) {
+            List<Component> items = entry.getValue();
+            if (items.isEmpty()) continue;
+
+            items.sort(naturalSort);
+            totalCount += items.size();
+
+            String groupLabel = getGroupLabel(entry.getKey());
+            sb.append("--- ").append(groupLabel).append(" (").append(items.size()).append(") ---\n");
+            sb.append(String.format("  %-12s %-20s %-15s\n", "Ref", "Value", "Type"));
+            sb.append("  " + "-".repeat(47) + "\n");
+
+            for (Component c : items) {
+                String ref   = c.getName()  != null ? c.getName()  : "(unnamed)";
+                String value = c.getValue() != null ? c.getValue() : "-";
+                String type  = c.getType()  != null ? c.getType()  : "-";
+                sb.append(String.format("  %-12s %-20s %-15s\n", ref, value, type));
+            }
+            sb.append("\n");
+        }
+
+        sb.append("=================================================\n");
+        sb.append("  Total components: ").append(totalCount).append("\n");
+        sb.append("=================================================\n");
+
+        return sb.toString();
+    }
+
+    private String resolveGroup(Component c) {
+        String type = c.getType();
+        if (type != null) {
+            switch (type) {
+                case "Resistor":              return "R";
+                case "Capacitor":
+                case "Capacitor (Polarized)": return "C";
+                case "Diode":                 return "D";
+                case "LED":                   return "LED";
+                case "Transistor":            return "Q";
+                case "IC":                    return "U";
+            }
+        }
+        // Fallback: try to detect from name prefix
+        String name = c.getName();
+        if (name != null) {
+            if (name.startsWith("R")) return "R";
+            if (name.startsWith("C")) return "C";
+            if (name.startsWith("D")) return "D";
+            if (name.startsWith("Q")) return "Q";
+            if (name.startsWith("U")) return "U";
+        }
+        return "Other";
+    }
+
+    private String getGroupLabel(String key) {
+        switch (key) {
+            case "R":     return "Resistors";
+            case "C":     return "Capacitors";
+            case "D":     return "Diodes";
+            case "LED":   return "LEDs";
+            case "Q":     return "Transistors";
+            case "U":     return "Integrated Circuits";
+            default:      return "Other";
+        }
+    }
+
+    /** Natural comparison: splits strings into text/number segments so R2 < R10. */
+    private int compareNatural(String a, String b) {
+        int i = 0, j = 0;
+        while (i < a.length() && j < b.length()) {
+            char ca = a.charAt(i), cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                // Compare numeric segments
+                int numA = 0, numB = 0;
+                while (i < a.length() && Character.isDigit(a.charAt(i)))
+                    numA = numA * 10 + (a.charAt(i++) - '0');
+                while (j < b.length() && Character.isDigit(b.charAt(j)))
+                    numB = numB * 10 + (b.charAt(j++) - '0');
+                if (numA != numB) return Integer.compare(numA, numB);
+            } else {
+                int cmp = Character.compare(Character.toUpperCase(ca), Character.toUpperCase(cb));
+                if (cmp != 0) return cmp;
+                i++;
+                j++;
+            }
+        }
+        return Integer.compare(a.length(), b.length());
+    }
+
+    private void generateBom() {
+        String content = buildBomContent();
+        if (content == null) {
+            showError("BOM Error", "No components on the board.");
+            return;
+        }
+
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Save BOM");
+        if (currentFile != null && currentFile.getParentFile() != null) {
+            fileChooser.setInitialDirectory(currentFile.getParentFile());
+            String projName = currentFile.getName().replace(".json", "");
+            fileChooser.setInitialFileName(projName + "_BOM.txt");
+        } else {
+            fileChooser.setInitialDirectory(getDefaultDirectory());
+            fileChooser.setInitialFileName("BOM.txt");
+        }
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Text file (*.txt)", "*.txt"));
+
+        java.io.File file = fileChooser.showSaveDialog(null);
+        if (file != null) {
+            try (PrintWriter pw = new PrintWriter(file, "UTF-8")) {
+                pw.print(content);
+                lastBomFile = file;
+
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("BOM Generated");
+                alert.setHeaderText("Bill of Materials saved!");
+                alert.setContentText(file.getAbsolutePath());
+                alert.showAndWait();
+            } catch (Exception e) {
+                showError("BOM Error", "Could not write BOM: " + e.getMessage());
+            }
+        }
+    }
+
+    private void updateBom() {
+        if (lastBomFile == null) {
+            showError("BOM Error", "No BOM file to update. Use 'Generate BOM...' first.");
+            return;
+        }
+        String content = buildBomContent();
+        if (content == null) {
+            showError("BOM Error", "No components on the board.");
+            return;
+        }
+        try (PrintWriter pw = new PrintWriter(lastBomFile, "UTF-8")) {
+            pw.print(content);
+
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("BOM Updated");
+            alert.setHeaderText("Bill of Materials updated!");
+            alert.setContentText(lastBomFile.getAbsolutePath());
+            alert.showAndWait();
+        } catch (Exception e) {
+            showError("BOM Error", "Could not update BOM: " + e.getMessage());
+        }
     }
 
     public static void main(String[] args) {
